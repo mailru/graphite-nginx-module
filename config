@@ -1,0 +1,8 @@
+ngx_feature="Graphite module"
+
+ngx_addon_name=ngx_http_graphite_module
+HTTP_MODULES="$HTTP_MODULES ngx_http_graphite_module"
+NGX_ADDON_SRCS="$NGX_ADDON_SRCS \
+                $ngx_addon_dir/src/ngx_http_graphite_module.c \
+                "
+
