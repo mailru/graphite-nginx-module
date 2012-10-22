@@ -683,7 +683,7 @@ ngx_http_graphite_handler(ngx_http_request_t *r) {
         ngx_memzero(&timer_event, sizeof(timer_event));
         timer_event.handler = ngx_http_graphite_timer_event_handler;
         timer_event.data = lmcf;
-        timer_event.log = r->connection->log;
+        timer_event.log = lmcf->shared->shm.log;
         ngx_add_timer(&timer_event, lmcf->frequency);
     }
 
