@@ -33,6 +33,7 @@ typedef struct {
 } ngx_http_graphite_loc_conf_t;
 
 static ngx_int_t ngx_http_graphite_init(ngx_conf_t *cf);
+static ngx_int_t ngx_http_graphite_process_init(ngx_cycle_t *cycle);
 
 static void *ngx_http_graphite_create_main_conf(ngx_conf_t *cf);
 static void *ngx_http_graphite_create_loc_conf(ngx_conf_t *cf);
@@ -96,7 +97,7 @@ ngx_module_t ngx_http_graphite_module = {
     NGX_HTTP_MODULE,                       /* module type */
     NULL,                                  /* init master */
     NULL,                                  /* init module */
-    NULL,                                  /* init process */
+    ngx_http_graphite_process_init,        /* init process */
     NULL,                                  /* init thread */
     NULL,                                  /* exit thread */
     NULL,                                  /* exit process */
@@ -190,6 +191,23 @@ ngx_http_graphite_init(ngx_conf_t *cf) {
         return NGX_ERROR;
 
     *h = ngx_http_graphite_handler;
+
+    return NGX_OK;
+}
+
+static ngx_int_t
+ngx_http_graphite_process_init(ngx_cycle_t *cycle) {
+
+    ngx_http_graphite_main_conf_t *lmcf = ngx_http_cycle_get_module_main_conf(cycle, ngx_http_graphite_module);
+
+    if (lmcf->enable) {
+
+        ngx_memzero(&timer_event, sizeof(timer_event));
+        timer_event.handler = ngx_http_graphite_timer_event_handler;
+        timer_event.data = lmcf;
+        timer_event.log = cycle->log;
+        ngx_add_timer(&timer_event, lmcf->frequency);
+	}
 
     return NGX_OK;
 }
@@ -299,7 +317,16 @@ ngx_http_graphite_config(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         return NGX_CONF_ERROR;
     }
 
-    lmcf->shared = ngx_shared_memory_add(cf, &graphite_shared_name, lmcf->shared_size, &ngx_http_graphite_module);
+    ngx_str_t graphite_shared_id;
+    graphite_shared_id.len = graphite_shared_name.len + 32;
+    graphite_shared_id.data = ngx_palloc(cf->pool, graphite_shared_id.len);
+    if (!graphite_shared_id.data) {
+        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "can't alloc memory");
+        return NGX_CONF_ERROR;
+    }
+    ngx_snprintf(graphite_shared_id.data, graphite_shared_id.len, "%V.%T", &graphite_shared_name, ngx_time());
+
+    lmcf->shared = ngx_shared_memory_add(cf, &graphite_shared_id, lmcf->shared_size, &ngx_http_graphite_module);
     if (!lmcf->shared) {
         ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "can't alloc shared memory");
         return NGX_CONF_ERROR;
@@ -679,14 +706,6 @@ ngx_http_graphite_handler(ngx_http_request_t *r) {
     if (!lmcf->enable)
         return NGX_OK;
 
-    if (!timer_event.timer_set) {
-        ngx_memzero(&timer_event, sizeof(timer_event));
-        timer_event.handler = ngx_http_graphite_timer_event_handler;
-        timer_event.data = lmcf;
-        timer_event.log = lmcf->shared->shm.log;
-        ngx_add_timer(&timer_event, lmcf->frequency);
-    }
-
     ngx_uint_t *params = ngx_http_graphite_get_params(r);
     if (params == NULL) {
 
@@ -753,9 +772,10 @@ ngx_http_graphite_timer_event_handler(ngx_event_t *ev) {
     ngx_shmtx_lock(&d->mutex);
     d->log = ev->log;
 
-    if (d->event_time == ts) {
+    if ((ngx_uint_t)(ts - d->event_time) * 1000 < lmcf->frequency) {
         ngx_shmtx_unlock(&d->mutex);
-        ngx_add_timer(ev, lmcf->frequency);
+        if (!(ngx_quit || ngx_terminate || ngx_exiting))
+            ngx_add_timer(ev, lmcf->frequency);
         return;
     }
 
@@ -783,7 +803,8 @@ ngx_http_graphite_timer_event_handler(ngx_event_t *ev) {
 
     if (b == buffer + lmcf->buffer_size) {
         ngx_log_error(NGX_LOG_ALERT, ev->log, 0, "graphite buffer size is too small");
-        ngx_add_timer(ev, lmcf->frequency);
+        if (!(ngx_quit || ngx_terminate || ngx_exiting))
+            ngx_add_timer(ev, lmcf->frequency);
         return;
     }
     *b = '\0';
@@ -798,7 +819,8 @@ ngx_http_graphite_timer_event_handler(ngx_event_t *ev) {
             ngx_log_error(NGX_LOG_ALERT, ev->log, 0, "graphite can't send udp packet");
     }
 
-    ngx_add_timer(ev, lmcf->frequency);
+    if (!(ngx_quit || ngx_terminate || ngx_exiting))
+        ngx_add_timer(ev, lmcf->frequency);
 }
 
 void
