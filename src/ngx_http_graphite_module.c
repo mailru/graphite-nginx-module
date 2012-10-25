@@ -384,7 +384,7 @@ ngx_http_graphite_data(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
     for (i = 0; i < lmcf->splits->nelts; ++i) {
 
         ngx_str_t *variant = &((ngx_str_t*)lmcf->splits->elts)[i];
-        if (variant->len == split->len && ngx_strncmp(variant->data, split->data, variant->len)) {
+        if (variant->len == split->len && !ngx_strncmp(variant->data, split->data, variant->len)) {
             find = 1;
             llcf->split = i;
             break;
