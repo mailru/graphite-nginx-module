@@ -139,8 +139,6 @@ typedef struct ngx_http_graphite_record_s {
 } ngx_http_graphite_record_t;
 
 typedef struct ngx_http_graphite_data_s {
-    ngx_shmtx_t mutex;
-
     ngx_http_graphite_record_t *records;
     ngx_http_graphite_acc_t *accs;
 
@@ -148,7 +146,6 @@ typedef struct ngx_http_graphite_data_s {
     time_t *last_time;
     time_t event_time;
 
-    ngx_log_t *log;
 } ngx_http_graphite_data_t;
 
 typedef struct ngx_http_graphite_interval_s {
@@ -207,7 +204,7 @@ ngx_http_graphite_process_init(ngx_cycle_t *cycle) {
         timer_event.data = lmcf;
         timer_event.log = cycle->log;
         ngx_add_timer(&timer_event, lmcf->frequency);
-	}
+    }
 
     return NGX_OK;
 }
@@ -329,6 +326,10 @@ ngx_http_graphite_config(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     lmcf->shared = ngx_shared_memory_add(cf, &graphite_shared_id, lmcf->shared_size, &ngx_http_graphite_module);
     if (!lmcf->shared) {
         ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "can't alloc shared memory");
+        return NGX_CONF_ERROR;
+    }
+    if (lmcf->shared->data) {
+        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "shared memory is used");
         return NGX_CONF_ERROR;
     }
     lmcf->shared->init = ngx_http_graphite_shared_init;
@@ -634,22 +635,21 @@ ngx_http_graphite_shared_init(ngx_shm_zone_t *shm_zone, void *data)
     ngx_http_graphite_main_conf_t *lmcf = shm_zone->data;
 
     if (data) {
-        shm_zone->data = data;
-        return NGX_OK;
+        ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "shared memory data set");
+        return NGX_ERROR;
     }
 
     ngx_uint_t i;
 
     size_t shared_required_size = 0;
     shared_required_size += sizeof(ngx_http_graphite_data_t);
-    shared_required_size += sizeof(ngx_shmtx_t);
     shared_required_size += sizeof(ngx_http_graphite_record_t*) * lmcf->intervals->nelts;
     shared_required_size += sizeof(ngx_http_graphite_record_t) * lmcf->max_interval * lmcf->splits->nelts * lmcf->params->nelts;
     shared_required_size += sizeof(ngx_http_graphite_acc_t) * lmcf->intervals->nelts * lmcf->splits->nelts * lmcf->params->nelts;
     shared_required_size += sizeof(time_t*) * lmcf->intervals->nelts;
 
-    if (shared_required_size > shm_zone->shm.size) {
-        ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "too small shared memory (minimum size is %uzb)", shared_required_size);
+    if (sizeof(ngx_slab_pool_t) + shared_required_size > shm_zone->shm.size) {
+        ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "too small shared memory (minimum size is %uzb)", sizeof(ngx_slab_pool_t) + shared_required_size);
         return NGX_ERROR;
     }
 
@@ -660,19 +660,25 @@ ngx_http_graphite_shared_init(ngx_shm_zone_t *shm_zone, void *data)
         return NGX_ERROR;
     }
 
-    shm_zone->data = shm_zone->shm.addr;
-    char *p = (char*)shm_zone->shm.addr;
+    ngx_slab_pool_t *shpool = (ngx_slab_pool_t *)shm_zone->shm.addr;
 
-    bzero(p, lmcf->shared_size);
+    if (shm_zone->shm.exists) {
+        ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "shared memory exists");
+        return NGX_ERROR;
+    }
+
+    char *p = ngx_slab_alloc(shpool, shared_required_size);
+    if (!p) {
+        ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "can't slab alloc in shared memory");
+        return NGX_ERROR;
+    }
+
+    shpool->data = p;
+
+    memset(p, 0, shared_required_size);
 
     ngx_http_graphite_data_t *d = (ngx_http_graphite_data_t*)p;
     p += sizeof(ngx_http_graphite_data_t);
-
-    if (ngx_shmtx_create(&d->mutex, (void*)p, NULL) != NGX_OK) {
-        ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "can't create mutex");
-        return NGX_ERROR;
-    }
-    p += sizeof(ngx_shmtx_t);
 
     d->records = (ngx_http_graphite_record_t*)p;
     p += sizeof(ngx_http_graphite_record_t) * lmcf->max_interval * lmcf->splits->nelts * lmcf->params->nelts;
@@ -713,12 +719,12 @@ ngx_http_graphite_handler(ngx_http_request_t *r) {
         return NGX_OK;
     }
 
-    ngx_http_graphite_data_t *d = (ngx_http_graphite_data_t*)lmcf->shared->data;
-    d->log = r->connection->log;
+    ngx_slab_pool_t *shpool = (ngx_slab_pool_t*)lmcf->shared->shm.addr;
+    ngx_http_graphite_data_t *d = (ngx_http_graphite_data_t*)shpool->data;
 
     time_t ts = ngx_time();
 
-    ngx_shmtx_lock(&d->mutex);
+    ngx_shmtx_lock(&shpool->mutex);
 
     ngx_http_graphite_del_old_records(lmcf, ts);
 
@@ -751,7 +757,7 @@ ngx_http_graphite_handler(ngx_http_request_t *r) {
         }
     }
 
-    ngx_shmtx_unlock(&d->mutex);
+    ngx_shmtx_unlock(&shpool->mutex);
 
     return NGX_OK;
 }
@@ -767,13 +773,13 @@ ngx_http_graphite_timer_event_handler(ngx_event_t *ev) {
     char *buffer = lmcf->buffer;
     char *b = buffer;
 
-    ngx_http_graphite_data_t *d = (ngx_http_graphite_data_t*)lmcf->shared->data;
+    ngx_slab_pool_t *shpool = (ngx_slab_pool_t*)lmcf->shared->shm.addr;
+    ngx_http_graphite_data_t *d = (ngx_http_graphite_data_t*)shpool->data;
 
-    ngx_shmtx_lock(&d->mutex);
-    d->log = ev->log;
+    ngx_shmtx_lock(&shpool->mutex);
 
     if ((ngx_uint_t)(ts - d->event_time) * 1000 < lmcf->frequency) {
-        ngx_shmtx_unlock(&d->mutex);
+        ngx_shmtx_unlock(&shpool->mutex);
         if (!(ngx_quit || ngx_terminate || ngx_exiting))
             ngx_add_timer(ev, lmcf->frequency);
         return;
@@ -799,7 +805,7 @@ ngx_http_graphite_timer_event_handler(ngx_event_t *ev) {
          }
     }
 
-    ngx_shmtx_unlock(&d->mutex);
+    ngx_shmtx_unlock(&shpool->mutex);
 
     if (b == buffer + lmcf->buffer_size) {
         ngx_log_error(NGX_LOG_ALERT, ev->log, 0, "graphite buffer size is too small");
@@ -826,7 +832,8 @@ ngx_http_graphite_timer_event_handler(ngx_event_t *ev) {
 void
 ngx_http_graphite_del_old_records(ngx_http_graphite_main_conf_t *lmcf, time_t ts) {
 
-    ngx_http_graphite_data_t *d = (ngx_http_graphite_data_t*)lmcf->shared->data;
+    ngx_slab_pool_t *shpool = (ngx_slab_pool_t*)lmcf->shared->shm.addr;
+    ngx_http_graphite_data_t *d = (ngx_http_graphite_data_t*)shpool->data;
 
     ngx_uint_t i, s, p;
     for (i = 0; i < lmcf->intervals->nelts; ++i) {
