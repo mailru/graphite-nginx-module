@@ -1,3 +1,5 @@
+have=NGX_GRAPHITE . auto/have
+
 ngx_feature="Graphite module"
 
 ngx_addon_name=ngx_http_graphite_module
