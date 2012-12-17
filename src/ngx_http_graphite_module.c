@@ -58,6 +58,7 @@ static ngx_uint_t ngx_http_graphite_param_request_time(ngx_http_request_t *r);
 static ngx_uint_t ngx_http_graphite_param_bytes_sent(ngx_http_request_t *r);
 static ngx_uint_t ngx_http_graphite_param_body_bytes_sent(ngx_http_request_t *r);
 static ngx_uint_t ngx_http_graphite_param_request_length(ngx_http_request_t *r);
+static ngx_uint_t ngx_http_graphite_param_ssl_handshake_time(ngx_http_request_t *r);
 
 static ngx_command_t ngx_http_graphite_commands[] = {
 
@@ -162,13 +163,14 @@ typedef struct ngx_http_graphite_param_s {
     ngx_http_graphite_param_handler_pt get;
 } ngx_http_graphite_param_t;
 
-#define PARAM_COUNT 4
+#define PARAM_COUNT 5
 
 static const ngx_http_graphite_param_t ngx_http_graphite_params[PARAM_COUNT] = {
     { ngx_string("request_time"), ngx_http_graphite_param_request_time },
     { ngx_string("bytes_sent"), ngx_http_graphite_param_bytes_sent },
     { ngx_string("body_bytes_sent"), ngx_http_graphite_param_body_bytes_sent },
     { ngx_string("request_length"), ngx_http_graphite_param_request_length },
+    { ngx_string("ssl_handshake_time"), ngx_http_graphite_param_ssl_handshake_time },
 };
 
 static ngx_int_t ngx_http_graphite_shared_init(ngx_shm_zone_t *shm_zone, void *data);
@@ -923,5 +925,21 @@ static ngx_uint_t
 ngx_http_graphite_param_request_length(ngx_http_request_t *r) {
 
     return (ngx_uint_t)r->request_length;
+}
+
+static ngx_uint_t
+ngx_http_graphite_param_ssl_handshake_time(ngx_http_request_t *r) {
+
+    ngx_msec_int_t ms;
+
+    ms = 0;
+
+#if (NGX_SSL)
+    ngx_ssl_connection_t *ssl = r->connection->ssl;
+    if (ssl)
+        ms = (ngx_msec_int_t)((ssl->handshake_end_sec - ssl->handshake_start_sec) * 1000 + (ssl->handshake_end_msec - ssl->handshake_start_msec));
+#endif
+
+    return (ngx_uint_t)ms;
 }
 
