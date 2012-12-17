@@ -32,6 +32,8 @@ typedef struct {
     ngx_uint_t split;
 } ngx_http_graphite_loc_conf_t;
 
+#define SPLIT_EMPTY (ngx_uint_t)-1
+
 static ngx_int_t ngx_http_graphite_init(ngx_conf_t *cf);
 static ngx_int_t ngx_http_graphite_process_init(ngx_cycle_t *cycle);
 
@@ -166,7 +168,7 @@ static const ngx_http_graphite_param_t ngx_http_graphite_params[PARAM_COUNT] = {
     { ngx_string("request_time"), ngx_http_graphite_param_request_time },
     { ngx_string("bytes_sent"), ngx_http_graphite_param_bytes_sent },
     { ngx_string("body_bytes_sent"), ngx_http_graphite_param_body_bytes_sent },
-    { ngx_string("request_length"), ngx_http_graphite_param_request_length }
+    { ngx_string("request_length"), ngx_http_graphite_param_request_length },
 };
 
 static ngx_int_t ngx_http_graphite_shared_init(ngx_shm_zone_t *shm_zone, void *data);
@@ -233,6 +235,8 @@ ngx_http_graphite_create_loc_conf(ngx_conf_t *cf) {
     llcf = ngx_pcalloc(cf->pool, sizeof(ngx_http_graphite_loc_conf_t));
     if (llcf == NULL)
         return NULL;
+
+    llcf->split = SPLIT_EMPTY;
 
     return llcf;
 }
@@ -710,6 +714,9 @@ ngx_http_graphite_handler(ngx_http_request_t *r) {
     llcf = ngx_http_get_module_loc_conf(r, ngx_http_graphite_module);
 
     if (!lmcf->enable)
+        return NGX_OK;
+
+    if (llcf->split == SPLIT_EMPTY)
         return NGX_OK;
 
     ngx_uint_t *params = ngx_http_graphite_get_params(r);
