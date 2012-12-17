@@ -1,0 +1,76 @@
+diff -u3 -p -r a/src/http/modules/ngx_http_gzip_filter_module.c b/src/http/modules/ngx_http_gzip_filter_module.c
+--- a/src/http/modules/ngx_http_gzip_filter_module.c	2012-02-13 19:23:43.000000000 +0400
++++ b/src/http/modules/ngx_http_gzip_filter_module.c	2012-12-17 16:22:43.923166776 +0400
+@@ -363,6 +363,16 @@ ngx_http_gzip_body_filter(ngx_http_reque
+         }
+     }
+ 
++#if (NGX_GRAPHITE)
++    struct timeval tp;
++    if (r->gzip_process == 0) {
++        r->gzip_process = 1;
++        ngx_gettimeofday(&tp);
++        r->gzip_start_sec = tp.tv_sec;
++        r->gzip_start_msec = tp.tv_usec / 1000;
++    }
++#endif
++
+     if (in) {
+         if (ngx_chain_add_copy(r->pool, &ctx->in, in) != NGX_OK) {
+             goto failed;
+@@ -432,6 +442,11 @@ ngx_http_gzip_body_filter(ngx_http_reque
+         if (ctx->out == NULL) {
+             ngx_http_gzip_filter_free_copy_buf(r, ctx);
+ 
++#if (NGX_GRAPHITE)
++            ngx_gettimeofday(&tp);
++            r->gzip_end_sec = tp.tv_sec;
++            r->gzip_end_msec = tp.tv_usec / 1000;
++#endif
+             return ctx->busy ? NGX_AGAIN : NGX_OK;
+         }
+ 
+@@ -456,6 +471,12 @@ ngx_http_gzip_body_filter(ngx_http_reque
+         ctx->nomem = 0;
+ 
+         if (ctx->done) {
++
++#if (NGX_GRAPHITE)
++            ngx_gettimeofday(&tp);
++            r->gzip_end_sec = tp.tv_sec;
++            r->gzip_end_msec = tp.tv_usec / 1000;
++#endif
+             return rc;
+         }
+     }
+@@ -474,6 +495,12 @@ failed:
+ 
+     ngx_http_gzip_filter_free_copy_buf(r, ctx);
+ 
++#if (NGX_GRAPHITE)
++    ngx_gettimeofday(&tp);
++    r->gzip_end_sec = tp.tv_sec;
++    r->gzip_end_msec = tp.tv_usec / 1000;
++#endif
++
+     return NGX_ERROR;
+ }
+ 
+diff -u3 -p -r a/src/http/ngx_http_request.h b/src/http/ngx_http_request.h
+--- a/src/http/ngx_http_request.h	2012-07-02 21:41:52.000000000 +0400
++++ b/src/http/ngx_http_request.h	2012-12-17 15:31:17.867295840 +0400
+@@ -562,6 +562,14 @@ struct ngx_http_request_s {
+ 
+     unsigned                          http_minor:16;
+     unsigned                          http_major:16;
++
++#if ((NGX_HTTP_GZIP) && (NGX_GRAPHITE))
++    ngx_uint_t                        gzip_process;
++    time_t                            gzip_start_sec;
++    ngx_msec_t                        gzip_start_msec;
++    time_t                            gzip_end_sec;
++    ngx_msec_t                        gzip_end_msec;
++#endif
+ };
+ 
+ 
