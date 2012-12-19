@@ -62,6 +62,7 @@ static ngx_uint_t ngx_http_graphite_param_ssl_handshake_time(ngx_http_request_t 
 static ngx_uint_t ngx_http_graphite_param_content_time(ngx_http_request_t *r);
 static ngx_uint_t ngx_http_graphite_param_gzip_time(ngx_http_request_t *r);
 static ngx_uint_t ngx_http_graphite_param_upstream_time(ngx_http_request_t *r);
+static ngx_uint_t ngx_http_graphite_param_rps(ngx_http_request_t *r);
 
 static ngx_command_t ngx_http_graphite_commands[] = {
 
@@ -160,23 +161,29 @@ typedef struct ngx_http_graphite_interval_s {
 } ngx_http_graphite_interval_t;
 
 typedef ngx_uint_t (*ngx_http_graphite_param_handler_pt)(ngx_http_request_t*);
+typedef double (*ngx_http_graphite_param_value_pt)(ngx_http_graphite_interval_t*, ngx_http_graphite_acc_t*);
+
+static double ngx_http_graphite_param_value_avg(ngx_http_graphite_interval_t *interval, ngx_http_graphite_acc_t *acc);
+static double ngx_http_graphite_param_value_persec(ngx_http_graphite_interval_t *interval, ngx_http_graphite_acc_t *acc);
 
 typedef struct ngx_http_graphite_param_s {
     ngx_str_t name;
     ngx_http_graphite_param_handler_pt get;
+    ngx_http_graphite_param_value_pt value;
 } ngx_http_graphite_param_t;
 
-#define PARAM_COUNT 8
+#define PARAM_COUNT 9
 
 static const ngx_http_graphite_param_t ngx_http_graphite_params[PARAM_COUNT] = {
-    { ngx_string("request_time"), ngx_http_graphite_param_request_time },
-    { ngx_string("bytes_sent"), ngx_http_graphite_param_bytes_sent },
-    { ngx_string("body_bytes_sent"), ngx_http_graphite_param_body_bytes_sent },
-    { ngx_string("request_length"), ngx_http_graphite_param_request_length },
-    { ngx_string("ssl_handshake_time"), ngx_http_graphite_param_ssl_handshake_time },
-    { ngx_string("content_time"), ngx_http_graphite_param_content_time },
-    { ngx_string("gzip_time"), ngx_http_graphite_param_gzip_time },
-    { ngx_string("upstream_time"), ngx_http_graphite_param_upstream_time },
+    { ngx_string("request_time"), ngx_http_graphite_param_request_time, ngx_http_graphite_param_value_avg },
+    { ngx_string("bytes_sent"), ngx_http_graphite_param_bytes_sent, ngx_http_graphite_param_value_avg },
+    { ngx_string("body_bytes_sent"), ngx_http_graphite_param_body_bytes_sent, ngx_http_graphite_param_value_avg },
+    { ngx_string("request_length"), ngx_http_graphite_param_request_length, ngx_http_graphite_param_value_avg },
+    { ngx_string("ssl_handshake_time"), ngx_http_graphite_param_ssl_handshake_time, ngx_http_graphite_param_value_avg },
+    { ngx_string("content_time"), ngx_http_graphite_param_content_time, ngx_http_graphite_param_value_avg },
+    { ngx_string("gzip_time"), ngx_http_graphite_param_gzip_time, ngx_http_graphite_param_value_avg },
+    { ngx_string("upstream_time"), ngx_http_graphite_param_upstream_time, ngx_http_graphite_param_value_avg },
+    { ngx_string("rps"), ngx_http_graphite_param_rps, ngx_http_graphite_param_value_persec },
 };
 
 static ngx_int_t ngx_http_graphite_shared_init(ngx_shm_zone_t *shm_zone, void *data);
@@ -666,7 +673,7 @@ ngx_http_graphite_shared_init(ngx_shm_zone_t *shm_zone, void *data)
     }
 
     // 128 is the approximate size of the one udp record
-    size_t buffer_required_size = lmcf->splits->nelts * lmcf->intervals->nelts * lmcf->params->nelts * 128;
+    size_t buffer_required_size = lmcf->splits->nelts * (lmcf->intervals->nelts * lmcf->params->nelts + 1) * 128;
     if (buffer_required_size > lmcf->buffer_size) {
         ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "too small buffer size (minimum size is %uzb)", buffer_required_size);
         return NGX_ERROR;
@@ -812,10 +819,11 @@ ngx_http_graphite_timer_event_handler(ngx_event_t *ev) {
              ngx_str_t *split = &(((ngx_str_t*)lmcf->splits->elts)[s]);
 
              for (p = 0; p < lmcf->params->nelts; ++p) {
-                 const ngx_str_t *param = &(ngx_http_graphite_params[((ngx_uint_t*)lmcf->params->elts)[p]].name);
+                 const ngx_http_graphite_param_t *param = &(ngx_http_graphite_params[((ngx_uint_t*)lmcf->params->elts)[p]]);
 
                  ngx_http_graphite_acc_t *a = &d->accs[i * (lmcf->splits->nelts * lmcf->params->nelts) + s * lmcf->params->nelts + p];
-                 b = (char*)ngx_snprintf((u_char*)b, lmcf->buffer_size - (b - buffer), "%V.%V.%V_%V_%V %.3f %T\n", &lmcf->prefix, &lmcf->host, split, &interval->name, param, (a->count) ? ((double)a->value / a->count) : 0, ts);
+                 double value = param->value(interval, a);
+                 b = (char*)ngx_snprintf((u_char*)b, lmcf->buffer_size - (b - buffer), "%V.%V.%V_%V_%V %.3f %T\n", &lmcf->prefix, &lmcf->host, split, &interval->name, &param->name, value, ts);
              }
          }
     }
@@ -997,4 +1005,22 @@ ngx_http_graphite_param_upstream_time(ngx_http_request_t *r) {
     ms = ngx_max(ms, 0);
 
     return ms;
+}
+
+static ngx_uint_t
+ngx_http_graphite_param_rps(ngx_http_request_t *r) {
+
+    return 1;
+}
+
+static double
+ngx_http_graphite_param_value_avg(ngx_http_graphite_interval_t *interval, ngx_http_graphite_acc_t *acc) {
+
+    return (acc->count != 0) ? (double)acc->value / acc->count : 0;
+}
+
+static double
+ngx_http_graphite_param_value_persec(ngx_http_graphite_interval_t *interval, ngx_http_graphite_acc_t *acc) {
+
+    return (double)acc->count / interval->value;
 }
