@@ -279,7 +279,7 @@ ngx_http_graphite_config(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
                 value.len = var->len - (arg->name.len + 1);
 
                 if (arg->handler(cf, cmd, conf, &value) == NGX_CONF_ERROR) {
-                    ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "invalid option value %V", var);
+                    ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite invalid option value %V", var);
                     return NGX_CONF_ERROR;
                 }
                 break;
@@ -287,49 +287,49 @@ ngx_http_graphite_config(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         }
 
         if (!find) {
-            ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "unknown option %V", var);
+            ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite unknown option %V", var);
             return NGX_CONF_ERROR;
         }
     }
 
     if (lmcf->prefix.len == 0) {
-        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "prefix not set");
+        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite prefix not set");
         return NGX_CONF_ERROR;
     }
 
     if (lmcf->port < 1 || lmcf->port > 65535) {
-        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "port must be in range form 1 to 65535");
+        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite port must be in range form 1 to 65535");
         return NGX_CONF_ERROR;
     }
 
     if (lmcf->frequency < 1 || lmcf->frequency > 65535) {
-        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "frequency must be in range form 1 to 65535");
+        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite frequency must be in range form 1 to 65535");
         return NGX_CONF_ERROR;
     }
 
     if (lmcf->intervals->nelts == 0) {
-        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "intervals not set");
+        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite intervals not set");
         return NGX_CONF_ERROR;
     }
 
     if (lmcf->params->nelts == 0) {
-        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "params not set");
+        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite params not set");
         return NGX_CONF_ERROR;
     }
 
     if (lmcf->shared_size == 0 || lmcf->buffer_size == 0) {
-        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "shared and buffer must be positive value");
+        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite shared and buffer must be positive value");
         return NGX_CONF_ERROR;
     }
 
     lmcf->socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (lmcf->socket < 0) {
-        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "can't create socket");
+        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't create socket");
         return NGX_CONF_ERROR;
     }
 
     if (lmcf->shared_size < sizeof(ngx_slab_pool_t)) {
-        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "too small shared memory");
+        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite too small shared memory");
         return NGX_CONF_ERROR;
     }
 
@@ -337,18 +337,18 @@ ngx_http_graphite_config(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     graphite_shared_id.len = graphite_shared_name.len + 32;
     graphite_shared_id.data = ngx_palloc(cf->pool, graphite_shared_id.len);
     if (!graphite_shared_id.data) {
-        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "can't alloc memory");
+        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't alloc memory");
         return NGX_CONF_ERROR;
     }
     ngx_snprintf(graphite_shared_id.data, graphite_shared_id.len, "%V.%T", &graphite_shared_name, ngx_time());
 
     lmcf->shared = ngx_shared_memory_add(cf, &graphite_shared_id, lmcf->shared_size, &ngx_http_graphite_module);
     if (!lmcf->shared) {
-        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "can't alloc shared memory");
+        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't alloc shared memory");
         return NGX_CONF_ERROR;
     }
     if (lmcf->shared->data) {
-        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "shared memory is used");
+        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite shared memory is used");
         return NGX_CONF_ERROR;
     }
     lmcf->shared->init = ngx_http_graphite_shared_init;
@@ -356,7 +356,7 @@ ngx_http_graphite_config(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     lmcf->buffer = ngx_palloc(cf->pool, lmcf->buffer_size);
     if (!lmcf->buffer) {
-        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "can't alloc memory");
+        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't alloc memory");
         return NGX_CONF_ERROR;
     }
 
@@ -371,7 +371,7 @@ ngx_http_graphite_config(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     lmcf->host.data = ngx_palloc(cf->pool, host_size);
     if (!lmcf->host.data) {
-        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "can't alloc memory");
+        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't alloc memory");
         return NGX_CONF_ERROR;
     }
 
@@ -393,7 +393,7 @@ ngx_http_graphite_data(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
     llcf = (ngx_http_graphite_loc_conf_t*)conf;;
 
     if (!lmcf->enable) {
-        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite_config not set");
+        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite config not set");
         return NGX_CONF_ERROR;
     }
 
@@ -416,13 +416,13 @@ ngx_http_graphite_data(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
 
         ngx_str_t *n = ngx_array_push(lmcf->splits);
         if (!n) {
-            ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "can't alloc memory");
+            ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't alloc memory");
             return NGX_CONF_ERROR;
         }
 
         n->data = ngx_palloc(cf->pool, split->len);
         if (!n->data) {
-            ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "can't alloc memory");
+            ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't alloc memory");
             return NGX_CONF_ERROR;
         }
 
@@ -440,7 +440,7 @@ ngx_http_graphite_arg_prefix(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, ngx
     lmcf->prefix.data = ngx_palloc(cf->pool, value->len);
 
     if (!lmcf->prefix.data) {
-        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "can't alloc memory");
+        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't alloc memory");
         return NGX_CONF_ERROR;
     }
 
@@ -459,7 +459,7 @@ ngx_http_graphite_arg_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, ngx
 
     char server[SERVER_LEN];
     if (value->len >= SERVER_LEN) {
-        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "server name too long");
+        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite server name too long");
         return NGX_CONF_ERROR;
     }
 
@@ -475,7 +475,7 @@ ngx_http_graphite_arg_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, ngx
             lmcf->server = *(struct in_addr*)*host->h_addr_list;
         }
         else {
-            ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "can't resolve server name");
+            ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't resolve server name");
             return NGX_CONF_ERROR;
         }
     }
@@ -514,19 +514,19 @@ ngx_http_graphite_arg_intervals(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, 
         if (i == value->len || value->data[i] == '|') {
 
             if (l == 0 || !b || i - s == 0) {
-                ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "intervals is empty");
+                ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite intervals is empty");
                 return NGX_CONF_ERROR;
             }
 
             ngx_http_graphite_interval_t *interval = ngx_array_push(lmcf->intervals);
             if (!interval) {
-                ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "can't alloc memory");
+                ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't alloc memory");
                 return NGX_CONF_ERROR;
             }
 
             interval->name.data = ngx_palloc(cf->pool, i - s);
             if (!interval->name.data) {
-                ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "can't alloc memory");
+                ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't alloc memory");
                 return NGX_CONF_ERROR;
             }
 
@@ -552,7 +552,7 @@ ngx_http_graphite_arg_intervals(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, 
     }
 
     if (l || b) {
-           ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "intervals bad value");
+           ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite intervals bad value");
         return NGX_CONF_ERROR;
     }
 
@@ -570,13 +570,13 @@ ngx_http_graphite_arg_params(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, ngx
         if (i == value->len || value->data[i] == '|') {
 
             if (i == s) {
-                ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "params is empty");
+                ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite params is empty");
                 return NGX_CONF_ERROR;
             }
 
             ngx_uint_t *param = ngx_array_push(lmcf->params);
             if (!param) {
-                ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "can't alloc memory");
+                ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't alloc memory");
                 return NGX_CONF_ERROR;
             }
 
@@ -590,7 +590,7 @@ ngx_http_graphite_arg_params(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, ngx
             }
 
             if (!find) {
-                ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "unknow param %*s", i - s, &value->data[s]);
+                ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite unknow param %*s", i - s, &value->data[s]);
                 return NGX_CONF_ERROR;
             }
 
@@ -654,7 +654,7 @@ ngx_http_graphite_shared_init(ngx_shm_zone_t *shm_zone, void *data)
     ngx_http_graphite_main_conf_t *lmcf = shm_zone->data;
 
     if (data) {
-        ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "shared memory data set");
+        ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "graphite shared memory data set");
         return NGX_ERROR;
     }
 
@@ -668,27 +668,27 @@ ngx_http_graphite_shared_init(ngx_shm_zone_t *shm_zone, void *data)
     shared_required_size += sizeof(time_t*) * lmcf->intervals->nelts;
 
     if (sizeof(ngx_slab_pool_t) + shared_required_size > shm_zone->shm.size) {
-        ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "too small shared memory (minimum size is %uzb)", sizeof(ngx_slab_pool_t) + shared_required_size);
+        ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "graphite too small shared memory (minimum size is %uzb)", sizeof(ngx_slab_pool_t) + shared_required_size);
         return NGX_ERROR;
     }
 
     // 128 is the approximate size of the one udp record
     size_t buffer_required_size = lmcf->splits->nelts * (lmcf->intervals->nelts * lmcf->params->nelts + 1) * 128;
     if (buffer_required_size > lmcf->buffer_size) {
-        ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "too small buffer size (minimum size is %uzb)", buffer_required_size);
+        ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "graphite too small buffer size (minimum size is %uzb)", buffer_required_size);
         return NGX_ERROR;
     }
 
     ngx_slab_pool_t *shpool = (ngx_slab_pool_t *)shm_zone->shm.addr;
 
     if (shm_zone->shm.exists) {
-        ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "shared memory exists");
+        ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "graphite shared memory exists");
         return NGX_ERROR;
     }
 
     char *p = ngx_slab_alloc(shpool, shared_required_size);
     if (!p) {
-        ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "can't slab alloc in shared memory");
+        ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "graphite can't slab alloc in shared memory");
         return NGX_ERROR;
     }
 
