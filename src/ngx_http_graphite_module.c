@@ -246,6 +246,8 @@ ngx_http_graphite_process_init(ngx_cycle_t *cycle) {
 
     ngx_http_graphite_main_conf_t *lmcf = ngx_http_cycle_get_module_main_conf(cycle, ngx_http_graphite_module);
 
+    ngx_log_error(NGX_LOG_DEBUG, cycle->log, 0, "graphite process init %s", (lmcf->enable) ? "enable" : "disable");
+
     if (lmcf->enable) {
 
         ngx_memzero(&timer_event, sizeof(timer_event));
@@ -534,6 +536,7 @@ ngx_http_graphite_arg_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, ngx
             return NGX_CONF_ERROR;
         }
     }
+
     return NGX_CONF_OK;
 }
 
@@ -777,6 +780,8 @@ ngx_http_graphite_shared_init(ngx_shm_zone_t *shm_zone, void *data)
 ngx_int_t
 ngx_http_graphite_handler(ngx_http_request_t *r) {
 
+    ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "graphite handler");
+
     ngx_http_graphite_main_conf_t *lmcf;
     ngx_http_graphite_loc_conf_t *llcf;
 
@@ -788,6 +793,9 @@ ngx_http_graphite_handler(ngx_http_request_t *r) {
 
     if (llcf->split == SPLIT_EMPTY)
         return NGX_OK;
+
+    ngx_str_t *split = &(((ngx_str_t*)lmcf->splits->elts)[llcf->split]);
+    ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "graphite split %V", split);
 
     ngx_uint_t *params = ngx_http_graphite_get_params(r);
     if (params == NULL) {
@@ -842,6 +850,8 @@ ngx_http_graphite_handler(ngx_http_request_t *r) {
 static void
 ngx_http_graphite_timer_event_handler(ngx_event_t *ev) {
 
+    ngx_log_error(NGX_LOG_DEBUG, ev->log, 0, "graphite timer event handler");
+
     time_t ts = ngx_time();
 
     ngx_http_graphite_main_conf_t *lmcf;
@@ -859,6 +869,7 @@ ngx_http_graphite_timer_event_handler(ngx_event_t *ev) {
         ngx_shmtx_unlock(&shpool->mutex);
         if (!(ngx_quit || ngx_terminate || ngx_exiting))
             ngx_add_timer(ev, lmcf->frequency);
+        ngx_log_error(NGX_LOG_DEBUG, ev->log, 0, "graphite skip timer");
         return;
     }
 
@@ -902,6 +913,8 @@ ngx_http_graphite_timer_event_handler(ngx_event_t *ev) {
         if (sendto(lmcf->socket, buffer, b - buffer, 0, &sin, sizeof(sin))==-1)
             ngx_log_error(NGX_LOG_ALERT, ev->log, 0, "graphite can't send udp packet");
     }
+
+    ngx_log_error(NGX_LOG_DEBUG, ev->log, 0, "graphite send data %ud", b - buffer);
 
     if (!(ngx_quit || ngx_terminate || ngx_exiting))
         ngx_add_timer(ev, lmcf->frequency);
