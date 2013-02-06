@@ -34,11 +34,16 @@ typedef struct {
 
 #define SPLIT_EMPTY (ngx_uint_t)-1
 
+static ngx_int_t ngx_http_graphite_add_variables(ngx_conf_t *cf);
 static ngx_int_t ngx_http_graphite_init(ngx_conf_t *cf);
 static ngx_int_t ngx_http_graphite_process_init(ngx_cycle_t *cycle);
 
 static void *ngx_http_graphite_create_main_conf(ngx_conf_t *cf);
 static void *ngx_http_graphite_create_loc_conf(ngx_conf_t *cf);
+
+#if (NGX_SSL)
+static ngx_int_t ngx_http_graphite_ssl_session_reused(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data);
+#endif
 
 static char *ngx_http_graphite_config(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 static char *ngx_http_graphite_data(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
@@ -84,7 +89,7 @@ static ngx_command_t ngx_http_graphite_commands[] = {
 };
 
 static ngx_http_module_t ngx_http_graphite_module_ctx = {
-    NULL,                                  /* preconfiguration */
+    ngx_http_graphite_add_variables,       /* preconfiguration */
     ngx_http_graphite_init,                /* postconfiguration */
 
     ngx_http_graphite_create_main_conf,    /* create main configuration */
@@ -113,6 +118,15 @@ ngx_module_t ngx_http_graphite_module = {
 };
 
 static ngx_str_t graphite_shared_name = ngx_string("graphite_shared");
+
+static ngx_http_variable_t ngx_http_graphite_vars[] = {
+
+#if (NGX_SSL)
+    { ngx_string("ssl_session_reused"), NULL, ngx_http_graphite_ssl_session_reused, 0, NGX_HTTP_VAR_CHANGEABLE, 0 },
+#endif
+
+    { ngx_null_string, NULL, NULL, 0, 0, 0 }
+};
 
 typedef char *(*ngx_http_graphite_arg_handler_pt)(ngx_conf_t*, ngx_command_t*, void *, ngx_str_t *value);
 
@@ -193,6 +207,24 @@ void ngx_http_graphite_del_old_records(ngx_http_graphite_main_conf_t *lmcf, time
 static ngx_uint_t *ngx_http_graphite_get_params(ngx_http_request_t *r);
 
 static ngx_int_t
+ngx_http_graphite_add_variables(ngx_conf_t *cf)
+{
+    ngx_http_variable_t *var, *v;
+
+    for (v = ngx_http_graphite_vars; v->name.len; v++) {
+        var = ngx_http_add_variable(cf, &v->name, v->flags);
+        if (var == NULL) {
+            return NGX_ERROR;
+        }
+
+        var->get_handler = v->get_handler;
+        var->data = v->data;
+    }
+
+    return NGX_OK;
+}
+
+static ngx_int_t
 ngx_http_graphite_init(ngx_conf_t *cf) {
 
     ngx_http_handler_pt *h;
@@ -255,6 +287,29 @@ ngx_http_graphite_create_loc_conf(ngx_conf_t *cf) {
 
     return llcf;
 }
+
+#if (NGX_SSL)
+static ngx_int_t
+ngx_http_graphite_ssl_session_reused(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data) {
+
+    ngx_str_t s;
+
+    if (r->connection->ssl && SSL_session_reused(r->connection->ssl->connection)) {
+        ngx_str_set(&s, "yes");
+    }
+    else {
+        ngx_str_set(&s, "no");
+    }
+
+    v->len = s.len;
+    v->data = s.data;
+    v->valid = 1;
+    v->no_cacheable = 0;
+    v->not_found = 0;
+
+    return NGX_OK;
+}
+#endif
 
 #define HOST_LEN 256
 
