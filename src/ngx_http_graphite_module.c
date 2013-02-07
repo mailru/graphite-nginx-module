@@ -25,6 +25,7 @@ typedef struct {
 
     size_t shared_size;
     size_t buffer_size;
+    size_t package_size;
 
 } ngx_http_graphite_main_conf_t;
 
@@ -56,6 +57,7 @@ static char *ngx_http_graphite_arg_intervals(ngx_conf_t *cf, ngx_command_t *cmd,
 static char *ngx_http_graphite_arg_params(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, ngx_str_t *value);
 static char *ngx_http_graphite_arg_shared(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, ngx_str_t *value);
 static char *ngx_http_graphite_arg_buffer(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, ngx_str_t *value);
+static char *ngx_http_graphite_arg_package(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, ngx_str_t *value);
 
 static char *ngx_http_graphite_parse_size(ngx_str_t *value, size_t *result);
 
@@ -135,7 +137,7 @@ typedef struct ngx_http_graphite_arg_s {
     ngx_http_graphite_arg_handler_pt handler;
 } ngx_http_graphite_arg_t;
 
-#define ARGS_COUNT 8
+#define ARGS_COUNT 9
 
 static const ngx_http_graphite_arg_t ngx_http_graphite_args[ARGS_COUNT] = {
     { ngx_string("prefix"), ngx_http_graphite_arg_prefix },
@@ -145,7 +147,8 @@ static const ngx_http_graphite_arg_t ngx_http_graphite_args[ARGS_COUNT] = {
     { ngx_string("intervals"), ngx_http_graphite_arg_intervals },
     { ngx_string("params"), ngx_http_graphite_arg_params },
     { ngx_string("shared"), ngx_http_graphite_arg_shared },
-    { ngx_string("buffer"), ngx_http_graphite_arg_buffer }
+    { ngx_string("buffer"), ngx_http_graphite_arg_buffer },
+    { ngx_string("package"), ngx_http_graphite_arg_package }
 };
 
 static ngx_event_t timer_event;
@@ -245,8 +248,6 @@ static ngx_int_t
 ngx_http_graphite_process_init(ngx_cycle_t *cycle) {
 
     ngx_http_graphite_main_conf_t *lmcf = ngx_http_cycle_get_module_main_conf(cycle, ngx_http_graphite_module);
-
-    ngx_log_error(NGX_LOG_DEBUG, cycle->log, 0, "graphite process init %s", (lmcf->enable) ? "enable" : "disable");
 
     if (lmcf->enable) {
 
@@ -375,7 +376,17 @@ ngx_http_graphite_config(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     }
 
     if (lmcf->shared_size == 0 || lmcf->buffer_size == 0) {
-        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite shared and buffer must be positive value");
+        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite shared must be positive value");
+        return NGX_CONF_ERROR;
+    }
+
+    if (lmcf->buffer_size == 0) {
+        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite buffer must be positive value");
+        return NGX_CONF_ERROR;
+    }
+
+    if (lmcf->package_size == 0) {
+        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite package must be positive value");
         return NGX_CONF_ERROR;
     }
 
@@ -674,6 +685,13 @@ ngx_http_graphite_arg_buffer(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, ngx
 }
 
 static char *
+ngx_http_graphite_arg_package(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, ngx_str_t *value) {
+
+    ngx_http_graphite_main_conf_t *lmcf = conf;
+    return ngx_http_graphite_parse_size(value, &lmcf->package_size);
+}
+
+static char *
 ngx_http_graphite_parse_size(ngx_str_t *value, ngx_uint_t *result) {
 
     if (!result)
@@ -780,8 +798,6 @@ ngx_http_graphite_shared_init(ngx_shm_zone_t *shm_zone, void *data)
 ngx_int_t
 ngx_http_graphite_handler(ngx_http_request_t *r) {
 
-    ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "graphite handler");
-
     ngx_http_graphite_main_conf_t *lmcf;
     ngx_http_graphite_loc_conf_t *llcf;
 
@@ -795,7 +811,6 @@ ngx_http_graphite_handler(ngx_http_request_t *r) {
         return NGX_OK;
 
     ngx_str_t *split = &(((ngx_str_t*)lmcf->splits->elts)[llcf->split]);
-    ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "graphite split %V", split);
 
     ngx_uint_t *params = ngx_http_graphite_get_params(r);
     if (params == NULL) {
@@ -850,8 +865,6 @@ ngx_http_graphite_handler(ngx_http_request_t *r) {
 static void
 ngx_http_graphite_timer_event_handler(ngx_event_t *ev) {
 
-    ngx_log_error(NGX_LOG_DEBUG, ev->log, 0, "graphite timer event handler");
-
     time_t ts = ngx_time();
 
     ngx_http_graphite_main_conf_t *lmcf;
@@ -869,7 +882,6 @@ ngx_http_graphite_timer_event_handler(ngx_event_t *ev) {
         ngx_shmtx_unlock(&shpool->mutex);
         if (!(ngx_quit || ngx_terminate || ngx_exiting))
             ngx_add_timer(ev, lmcf->frequency);
-        ngx_log_error(NGX_LOG_DEBUG, ev->log, 0, "graphite skip timer");
         return;
     }
 
@@ -910,11 +922,32 @@ ngx_http_graphite_timer_event_handler(ngx_event_t *ev) {
         sin.sin_family = AF_INET;
         sin.sin_addr = lmcf->server;
         sin.sin_port = htons(lmcf->port);
-        if (sendto(lmcf->socket, buffer, b - buffer, 0, &sin, sizeof(sin))==-1)
-            ngx_log_error(NGX_LOG_ALERT, ev->log, 0, "graphite can't send udp packet");
-    }
 
-    ngx_log_error(NGX_LOG_DEBUG, ev->log, 0, "graphite send data %ud", b - buffer);
+        char *part = buffer;
+        char *next = NULL;
+        char *nl = NULL;
+
+        while (*part) {
+            next = part;
+            nl = part;
+
+            while ((next = strchr(next, '\n')) && ((size_t)(next - part) <= lmcf->package_size)) {
+                nl = next;
+                next++;
+            }
+
+            if (nl > part) {
+
+                if (sendto(lmcf->socket, part, nl - part + 1, 0, &sin, sizeof(sin)) == -1)
+                    ngx_log_error(NGX_LOG_ALERT, ev->log, 0, "graphite can't send udp packet");
+            }
+            else {
+                ngx_log_error(NGX_LOG_ALERT, ev->log, 0, "graphite package size too small, need send %z", (size_t)(next - part));
+            }
+
+            part = nl + 1;
+        }
+    }
 
     if (!(ngx_quit || ngx_terminate || ngx_exiting))
         ngx_add_timer(ev, lmcf->frequency);
