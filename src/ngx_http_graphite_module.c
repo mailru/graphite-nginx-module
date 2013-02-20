@@ -300,11 +300,16 @@ ngx_http_graphite_ssl_session_reused(ngx_http_request_t *r, ngx_http_variable_va
 
     ngx_str_t s;
 
-    if (r->connection->ssl && SSL_session_reused(r->connection->ssl->connection)) {
-        ngx_str_set(&s, "yes");
+    if (r->connection->requests == 1) {
+        if (r->connection->ssl && SSL_session_reused(r->connection->ssl->connection)) {
+            ngx_str_set(&s, "yes");
+        }
+        else {
+            ngx_str_set(&s, "no");
+        }
     }
     else {
-        ngx_str_set(&s, "no");
+        ngx_str_set(&s, "none");
     }
 
     v->len = s.len;
@@ -1038,7 +1043,6 @@ ngx_http_graphite_param_request_time(ngx_http_request_t *r) {
 
     tp = ngx_timeofday();
     ms = (ngx_msec_int_t) ((tp->sec - r->start_sec) * 1000 + (tp->msec - r->start_msec));
-    ms = ngx_max(ms, 0);
 
     return (ngx_uint_t)ms;
 }
@@ -1074,11 +1078,12 @@ ngx_http_graphite_param_ssl_handshake_time(ngx_http_request_t *r) {
     ms = 0;
 
 #if (NGX_SSL)
-    ngx_ssl_connection_t *ssl = r->connection->ssl;
-    if (ssl)
-        ms = (ngx_msec_int_t)((ssl->handshake_end_sec - ssl->handshake_start_sec) * 1000 + (ssl->handshake_end_msec - ssl->handshake_start_msec));
+    if (r->connection->requests == 1) {
+        ngx_ssl_connection_t *ssl = r->connection->ssl;
+        if (ssl)
+            ms = (ngx_msec_int_t)((ssl->handshake_end_sec - ssl->handshake_start_sec) * 1000 + (ssl->handshake_end_msec - ssl->handshake_start_msec));
+    }
 #endif
-    ms = ngx_max(ms, 0);
 
     return (ngx_uint_t)ms;
 }
