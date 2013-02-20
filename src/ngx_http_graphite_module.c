@@ -66,6 +66,7 @@ static ngx_uint_t ngx_http_graphite_param_bytes_sent(ngx_http_request_t *r);
 static ngx_uint_t ngx_http_graphite_param_body_bytes_sent(ngx_http_request_t *r);
 static ngx_uint_t ngx_http_graphite_param_request_length(ngx_http_request_t *r);
 static ngx_uint_t ngx_http_graphite_param_ssl_handshake_time(ngx_http_request_t *r);
+static ngx_uint_t ngx_http_graphite_param_ssl_cache_usage(ngx_http_request_t *r);
 static ngx_uint_t ngx_http_graphite_param_content_time(ngx_http_request_t *r);
 static ngx_uint_t ngx_http_graphite_param_gzip_time(ngx_http_request_t *r);
 static ngx_uint_t ngx_http_graphite_param_upstream_time(ngx_http_request_t *r);
@@ -146,7 +147,7 @@ static const ngx_http_graphite_arg_t ngx_http_graphite_args[ARGS_COUNT] = {
     { ngx_string("port"), ngx_http_graphite_arg_port, ngx_string("2003") },
     { ngx_string("frequency"), ngx_http_graphite_arg_frequency, ngx_string("60") },
     { ngx_string("intervals"), ngx_http_graphite_arg_intervals, ngx_string("1m") },
-    { ngx_string("params"), ngx_http_graphite_arg_params, ngx_string("request_time|bytes_sent|body_bytes_sent|request_length|ssl_handshake_time|content_time|gzip_time|upstream_time|rps") },
+    { ngx_string("params"), ngx_http_graphite_arg_params, ngx_string("request_time|bytes_sent|body_bytes_sent|request_length|ssl_handshake_time|ssl_cache_usage|content_time|gzip_time|upstream_time|rps") },
     { ngx_string("shared"), ngx_http_graphite_arg_shared, ngx_string("1m") },
     { ngx_string("buffer"), ngx_http_graphite_arg_buffer, ngx_string("64k") },
     { ngx_string("package"), ngx_http_graphite_arg_package, ngx_string("1400") }
@@ -190,7 +191,7 @@ typedef struct ngx_http_graphite_param_s {
     ngx_http_graphite_param_value_pt value;
 } ngx_http_graphite_param_t;
 
-#define PARAM_COUNT 9
+#define PARAM_COUNT 10
 
 static const ngx_http_graphite_param_t ngx_http_graphite_params[PARAM_COUNT] = {
     { ngx_string("request_time"), ngx_http_graphite_param_request_time, ngx_http_graphite_param_value_avg },
@@ -198,6 +199,7 @@ static const ngx_http_graphite_param_t ngx_http_graphite_params[PARAM_COUNT] = {
     { ngx_string("body_bytes_sent"), ngx_http_graphite_param_body_bytes_sent, ngx_http_graphite_param_value_avg },
     { ngx_string("request_length"), ngx_http_graphite_param_request_length, ngx_http_graphite_param_value_avg },
     { ngx_string("ssl_handshake_time"), ngx_http_graphite_param_ssl_handshake_time, ngx_http_graphite_param_value_avg },
+    { ngx_string("ssl_cache_usage"), ngx_http_graphite_param_ssl_cache_usage, ngx_http_graphite_param_value_avg },
     { ngx_string("content_time"), ngx_http_graphite_param_content_time, ngx_http_graphite_param_value_avg },
     { ngx_string("gzip_time"), ngx_http_graphite_param_gzip_time, ngx_http_graphite_param_value_avg },
     { ngx_string("upstream_time"), ngx_http_graphite_param_upstream_time, ngx_http_graphite_param_value_avg },
@@ -1079,6 +1081,42 @@ ngx_http_graphite_param_ssl_handshake_time(ngx_http_request_t *r) {
     ms = ngx_max(ms, 0);
 
     return (ngx_uint_t)ms;
+}
+
+static ngx_uint_t
+ngx_http_graphite_param_ssl_cache_usage(ngx_http_request_t *r) {
+
+    ngx_uint_t usage;
+
+    usage = 0;
+
+#if (NGX_SSL)
+    ngx_ssl_connection_t *ssl = r->connection->ssl;
+    if (ssl) {
+
+        SSL_CTX *ssl_ctx = SSL_get_SSL_CTX(ssl->connection);
+        ngx_shm_zone_t *shm_zone = SSL_CTX_get_ex_data(ssl_ctx, ngx_ssl_session_cache_index);
+        if (shm_zone) {
+            ngx_slab_pool_t *shpool = (ngx_slab_pool_t*)shm_zone->shm.addr;
+
+            ngx_shmtx_lock(&shpool->mutex);
+
+            ngx_uint_t all_pages = (shpool->end - shpool->start) / ngx_pagesize;
+            ngx_uint_t free_pages = 0;
+
+            ngx_slab_page_t *page;
+            for (page = shpool->free.next; page != &shpool->free; page = page->next)
+                free_pages += page->slab;
+
+            ngx_shmtx_unlock(&shpool->mutex);
+
+            if (all_pages > 0)
+                usage = (100 * (all_pages - free_pages)) / all_pages;
+        }
+    }
+#endif
+
+    return usage;
 }
 
 static ngx_uint_t
