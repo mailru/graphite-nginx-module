@@ -61,17 +61,17 @@ static char *ngx_http_graphite_arg_package(ngx_conf_t *cf, ngx_command_t *cmd, v
 
 static char *ngx_http_graphite_parse_size(ngx_str_t *value, size_t *result);
 
-static ngx_uint_t ngx_http_graphite_param_request_time(ngx_http_request_t *r);
-static ngx_uint_t ngx_http_graphite_param_bytes_sent(ngx_http_request_t *r);
-static ngx_uint_t ngx_http_graphite_param_body_bytes_sent(ngx_http_request_t *r);
-static ngx_uint_t ngx_http_graphite_param_request_length(ngx_http_request_t *r);
-static ngx_uint_t ngx_http_graphite_param_ssl_handshake_time(ngx_http_request_t *r);
-static ngx_uint_t ngx_http_graphite_param_ssl_cache_usage(ngx_http_request_t *r);
-static ngx_uint_t ngx_http_graphite_param_content_time(ngx_http_request_t *r);
-static ngx_uint_t ngx_http_graphite_param_gzip_time(ngx_http_request_t *r);
-static ngx_uint_t ngx_http_graphite_param_upstream_time(ngx_http_request_t *r);
-static ngx_uint_t ngx_http_graphite_param_rps(ngx_http_request_t *r);
-static ngx_uint_t ngx_http_graphite_param_keepalive_rps(ngx_http_request_t *r);
+static double ngx_http_graphite_param_request_time(ngx_http_request_t *r);
+static double ngx_http_graphite_param_bytes_sent(ngx_http_request_t *r);
+static double ngx_http_graphite_param_body_bytes_sent(ngx_http_request_t *r);
+static double ngx_http_graphite_param_request_length(ngx_http_request_t *r);
+static double ngx_http_graphite_param_ssl_handshake_time(ngx_http_request_t *r);
+static double ngx_http_graphite_param_ssl_cache_usage(ngx_http_request_t *r);
+static double ngx_http_graphite_param_content_time(ngx_http_request_t *r);
+static double ngx_http_graphite_param_gzip_time(ngx_http_request_t *r);
+static double ngx_http_graphite_param_upstream_time(ngx_http_request_t *r);
+static double ngx_http_graphite_param_rps(ngx_http_request_t *r);
+static double ngx_http_graphite_param_keepalive_rps(ngx_http_request_t *r);
 
 static ngx_command_t ngx_http_graphite_commands[] = {
 
@@ -157,7 +157,7 @@ static const ngx_http_graphite_arg_t ngx_http_graphite_args[ARGS_COUNT] = {
 static ngx_event_t timer_event;
 
 typedef struct ngx_http_graphite_acc_s {
-    uint64_t value;
+    double value;
     ngx_uint_t count;
 } ngx_http_graphite_acc_t;
 
@@ -175,7 +175,7 @@ typedef struct ngx_http_graphite_interval_s {
     ngx_uint_t value;
 } ngx_http_graphite_interval_t;
 
-typedef ngx_uint_t (*ngx_http_graphite_param_handler_pt)(ngx_http_request_t*);
+typedef double (*ngx_http_graphite_param_handler_pt)(ngx_http_request_t*);
 typedef double (*ngx_http_graphite_param_value_pt)(ngx_http_graphite_interval_t*, ngx_http_graphite_acc_t*);
 
 static double ngx_http_graphite_param_value_avg(ngx_http_graphite_interval_t *interval, ngx_http_graphite_acc_t *acc);
@@ -207,7 +207,7 @@ static ngx_int_t ngx_http_graphite_shared_init(ngx_shm_zone_t *shm_zone, void *d
 ngx_int_t ngx_http_graphite_handler(ngx_http_request_t *r);
 static void ngx_http_graphite_timer_event_handler(ngx_event_t *ev);
 void ngx_http_graphite_del_old_records(ngx_http_graphite_main_conf_t *lmcf, time_t ts);
-static ngx_uint_t *ngx_http_graphite_get_params(ngx_http_request_t *r);
+static double *ngx_http_graphite_get_params(ngx_http_request_t *r);
 
 static ngx_int_t
 ngx_http_graphite_add_variables(ngx_conf_t *cf)
@@ -824,7 +824,7 @@ ngx_http_graphite_handler(ngx_http_request_t *r) {
     if (llcf->split == SPLIT_EMPTY)
         return NGX_OK;
 
-    ngx_uint_t *params = ngx_http_graphite_get_params(r);
+    double *params = ngx_http_graphite_get_params(r);
     if (params == NULL) {
 
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "graphite can't get params");
@@ -848,12 +848,6 @@ ngx_http_graphite_handler(ngx_http_request_t *r) {
 
         acc->value += params[p];
         acc->count++;
-
-        if (acc->value < params[p]) {
-            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "graphite accamulator overfull");
-            acc->value = 0;
-            acc->count = 0;
-        }
     }
 
     ngx_shmtx_unlock(&shpool->mutex);
@@ -989,13 +983,13 @@ ngx_http_graphite_del_old_records(ngx_http_graphite_main_conf_t *lmcf, time_t ts
     }
 }
 
-static ngx_uint_t *
+static double *
 ngx_http_graphite_get_params(ngx_http_request_t *r) {
 
     ngx_http_graphite_main_conf_t *lmcf;
     lmcf = ngx_http_get_module_main_conf(r, ngx_http_graphite_module);
 
-    ngx_uint_t *params = ngx_palloc(r->pool, sizeof(ngx_uint_t) * lmcf->params->nelts);
+    double *params = ngx_palloc(r->pool, sizeof(double) * lmcf->params->nelts);
     if (!params)
         return NULL;
 
@@ -1009,7 +1003,7 @@ ngx_http_graphite_get_params(ngx_http_request_t *r) {
     return params;
 }
 
-static ngx_uint_t
+static double
 ngx_http_graphite_param_request_time(ngx_http_request_t *r) {
 
     ngx_time_t      *tp;
@@ -1018,16 +1012,16 @@ ngx_http_graphite_param_request_time(ngx_http_request_t *r) {
     tp = ngx_timeofday();
     ms = (ngx_msec_int_t) ((tp->sec - r->start_sec) * 1000 + (tp->msec - r->start_msec));
 
-    return (ngx_uint_t)ms;
+    return (double)ms;
 }
 
-static ngx_uint_t
+static double
 ngx_http_graphite_param_bytes_sent(ngx_http_request_t *r) {
 
-    return (ngx_uint_t)r->connection->sent;
+    return (double)r->connection->sent;
 }
 
-static ngx_uint_t
+static double
 ngx_http_graphite_param_body_bytes_sent(ngx_http_request_t *r) {
 
     off_t  length;
@@ -1035,16 +1029,16 @@ ngx_http_graphite_param_body_bytes_sent(ngx_http_request_t *r) {
     length = r->connection->sent - r->header_size;
     length = ngx_max(length, 0);
 
-    return (ngx_uint_t)length;
+    return (double)length;
 }
 
-static ngx_uint_t
+static double
 ngx_http_graphite_param_request_length(ngx_http_request_t *r) {
 
-    return (ngx_uint_t)r->request_length;
+    return (double)r->request_length;
 }
 
-static ngx_uint_t
+static double
 ngx_http_graphite_param_ssl_handshake_time(ngx_http_request_t *r) {
 
     ngx_msec_int_t ms;
@@ -1059,13 +1053,13 @@ ngx_http_graphite_param_ssl_handshake_time(ngx_http_request_t *r) {
     }
 #endif
 
-    return (ngx_uint_t)ms;
+    return (double)ms;
 }
 
-static ngx_uint_t
+static double
 ngx_http_graphite_param_ssl_cache_usage(ngx_http_request_t *r) {
 
-    ngx_uint_t usage;
+    double usage;
 
     usage = 0;
 
@@ -1098,7 +1092,7 @@ ngx_http_graphite_param_ssl_cache_usage(ngx_http_request_t *r) {
     return usage;
 }
 
-static ngx_uint_t
+static double
 ngx_http_graphite_param_content_time(ngx_http_request_t *r) {
 
     ngx_msec_int_t ms;
@@ -1106,10 +1100,10 @@ ngx_http_graphite_param_content_time(ngx_http_request_t *r) {
     ms = (ngx_msec_int_t)((r->content_end_sec - r->content_start_sec) * 1000 + (r->content_end_msec - r->content_start_msec));
     ms = ngx_max(ms, 0);
 
-    return (ngx_uint_t)ms;
+    return (double)ms;
 }
 
-static ngx_uint_t
+static double
 ngx_http_graphite_param_gzip_time(ngx_http_request_t *r) {
 
     ngx_msec_int_t ms;
@@ -1121,10 +1115,10 @@ ngx_http_graphite_param_gzip_time(ngx_http_request_t *r) {
 #endif
     ms = ngx_max(ms, 0);
 
-    return (ngx_uint_t)ms;
+    return (double)ms;
 }
 
-static ngx_uint_t
+static double
 ngx_http_graphite_param_upstream_time(ngx_http_request_t *r) {
 
     ngx_uint_t i;
@@ -1144,16 +1138,16 @@ ngx_http_graphite_param_upstream_time(ngx_http_request_t *r) {
     }
     ms = ngx_max(ms, 0);
 
-    return ms;
+    return (double)ms;
 }
 
-static ngx_uint_t
+static double
 ngx_http_graphite_param_rps(ngx_http_request_t *r) {
 
     return 1;
 }
 
-static ngx_uint_t
+static double
 ngx_http_graphite_param_keepalive_rps(ngx_http_request_t *r) {
 
     if (r->connection->requests == 1)
@@ -1165,11 +1159,11 @@ ngx_http_graphite_param_keepalive_rps(ngx_http_request_t *r) {
 static double
 ngx_http_graphite_param_value_avg(ngx_http_graphite_interval_t *interval, ngx_http_graphite_acc_t *acc) {
 
-    return (acc->count != 0) ? (double)acc->value / acc->count : 0;
+    return (acc->count != 0) ? acc->value / acc->count : 0;
 }
 
 static double
 ngx_http_graphite_param_value_persec(ngx_http_graphite_interval_t *interval, ngx_http_graphite_acc_t *acc) {
 
-    return (double)acc->value / interval->value;
+    return acc->value / interval->value;
 }
