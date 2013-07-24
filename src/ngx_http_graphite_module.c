@@ -170,7 +170,7 @@ typedef struct ngx_http_graphite_data_s {
     ngx_http_graphite_acc_t *accs;
 
     time_t start_time;
-    time_t *last_time;
+    time_t last_time;
     time_t event_time;
 
 } ngx_http_graphite_data_t;
@@ -767,14 +767,11 @@ ngx_http_graphite_shared_init(ngx_shm_zone_t *shm_zone, void *data)
         return NGX_ERROR;
     }
 
-    ngx_uint_t i;
-
     size_t shared_required_size = 0;
     shared_required_size += sizeof(ngx_http_graphite_data_t);
     shared_required_size += sizeof(ngx_http_graphite_record_t*) * lmcf->intervals->nelts;
-    shared_required_size += sizeof(ngx_http_graphite_record_t) * lmcf->max_interval * lmcf->splits->nelts * lmcf->params->nelts;
+    shared_required_size += sizeof(ngx_http_graphite_record_t) * (lmcf->max_interval + 1) * lmcf->splits->nelts * lmcf->params->nelts;
     shared_required_size += sizeof(ngx_http_graphite_acc_t) * lmcf->intervals->nelts * lmcf->splits->nelts * lmcf->params->nelts;
-    shared_required_size += sizeof(time_t*) * lmcf->intervals->nelts;
 
     if (sizeof(ngx_slab_pool_t) + shared_required_size > shm_zone->shm.size) {
         ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "graphite too small shared memory (minimum size is %uzb)", sizeof(ngx_slab_pool_t) + shared_required_size);
@@ -809,20 +806,14 @@ ngx_http_graphite_shared_init(ngx_shm_zone_t *shm_zone, void *data)
     p += sizeof(ngx_http_graphite_data_t);
 
     d->records = (ngx_http_graphite_record_t*)p;
-    p += sizeof(ngx_http_graphite_record_t) * lmcf->max_interval * lmcf->splits->nelts * lmcf->params->nelts;
+    p += sizeof(ngx_http_graphite_record_t) * (lmcf->max_interval + 1) * lmcf->splits->nelts * lmcf->params->nelts;
 
     d->accs = (ngx_http_graphite_acc_t*)p;
     p += sizeof(ngx_http_graphite_acc_t) * lmcf->intervals->nelts * lmcf->splits->nelts * lmcf->params->nelts;
 
-    d->last_time = (time_t*)p;
-    p += sizeof(time_t*) * lmcf->intervals->nelts;
-
     time_t ts = ngx_time();
     d->start_time = ts;
-
-    for (i = 0; i < lmcf->intervals->nelts; ++i)
-        d->last_time[i] = ts;
-
+    d->last_time = ts;
     d->event_time = ts;
 
     return NGX_OK;
@@ -859,10 +850,10 @@ ngx_http_graphite_handler(ngx_http_request_t *r) {
 
     ngx_http_graphite_del_old_records(lmcf, ts);
 
-    ngx_uint_t i, p;
+    ngx_uint_t p;
     for (p = 0; p < lmcf->params->nelts; ++p) {
 
-        ngx_uint_t m = ((ts - d->start_time) % lmcf->max_interval) * lmcf->splits->nelts * lmcf->params->nelts + llcf->split * lmcf->params->nelts + p;
+        ngx_uint_t m = ((ts - d->start_time) % (lmcf->max_interval + 1)) * lmcf->splits->nelts * lmcf->params->nelts + llcf->split * lmcf->params->nelts + p;
         ngx_http_graphite_record_t *record = &d->records[m];
 
         record->acc.value += params[p];
@@ -872,19 +863,6 @@ ngx_http_graphite_handler(ngx_http_request_t *r) {
             ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "graphite accamulator overfull");
             record->acc.value = 0;
             record->acc.count = 0;
-        }
-
-        for (i = 0; i < lmcf->intervals->nelts; ++i) {
-
-            ngx_http_graphite_acc_t *a = &d->accs[i * (lmcf->splits->nelts * lmcf->params->nelts) + llcf->split * lmcf->params->nelts + p];
-            a->value += params[p];
-            a->count++;
-
-            if (a->value < params[p]) {
-                ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "graphite accamulator overfull");
-                a->value = 0;
-                a->count = 0;
-            }
         }
     }
 
@@ -924,14 +902,27 @@ ngx_http_graphite_timer_event_handler(ngx_event_t *ev) {
     for (i = 0; i < lmcf->intervals->nelts; ++i) {
         ngx_http_graphite_interval_t *interval = &((ngx_http_graphite_interval_t*)lmcf->intervals->elts)[i];
 
-         for (s = 0; s < lmcf->splits->nelts; ++s) {
-             ngx_str_t *split = &(((ngx_str_t*)lmcf->splits->elts)[s]);
+        for (s = 0; s < lmcf->splits->nelts; ++s) {
+            ngx_str_t *split = &(((ngx_str_t*)lmcf->splits->elts)[s]);
 
-             for (p = 0; p < lmcf->params->nelts; ++p) {
-                 const ngx_http_graphite_param_t *param = &(ngx_http_graphite_params[((ngx_uint_t*)lmcf->params->elts)[p]]);
+            for (p = 0; p < lmcf->params->nelts; ++p) {
+                const ngx_http_graphite_param_t *param = &(ngx_http_graphite_params[((ngx_uint_t*)lmcf->params->elts)[p]]);
 
-                 ngx_http_graphite_acc_t *a = &d->accs[i * (lmcf->splits->nelts * lmcf->params->nelts) + s * lmcf->params->nelts + p];
-                 double value = param->value(interval, a);
+                ngx_http_graphite_acc_t a;
+                a.value = 0;
+                a.count = 0;
+
+                unsigned l;
+                for (l = 0; l < interval->value; ++l) {
+                    if (ts - l - 1 >= d->start_time) {
+                        ngx_uint_t m = ((ts - l - 1 - d->start_time) % (lmcf->max_interval + 1)) * lmcf->splits->nelts * lmcf->params->nelts + s * lmcf->params->nelts + p;
+                        ngx_http_graphite_record_t *record = &d->records[m];
+                        a.value += record->acc.value;
+                        a.count += record->acc.count;
+                    }
+                 }
+
+                 double value = param->value(interval, &a);
                  b = (char*)ngx_snprintf((u_char*)b, lmcf->buffer_size - (b - buffer), "%V.%V.%V_%V_%V %.3f %T\n", &lmcf->prefix, &lmcf->host, split, &interval->name, &param->name, value, ts);
              }
          }
@@ -990,30 +981,21 @@ ngx_http_graphite_del_old_records(ngx_http_graphite_main_conf_t *lmcf, time_t ts
     ngx_slab_pool_t *shpool = (ngx_slab_pool_t*)lmcf->shared->shm.addr;
     ngx_http_graphite_data_t *d = (ngx_http_graphite_data_t*)shpool->data;
 
-    ngx_uint_t i, s, p;
-    for (i = 0; i < lmcf->intervals->nelts; ++i) {
+    ngx_uint_t s, p;
 
-        ngx_http_graphite_interval_t *interval = &((ngx_http_graphite_interval_t*)lmcf->intervals->elts)[i];
-        while ((ngx_uint_t)d->last_time[i] + interval->value <= (ngx_uint_t)ts) {
+    while ((ngx_uint_t)d->last_time + lmcf->max_interval < (ngx_uint_t)ts) {
 
-            for (s = 0; s < lmcf->splits->nelts; ++s) {
+        for (s = 0; s < lmcf->splits->nelts; ++s) {
 
-                for (p = 0; p < lmcf->params->nelts; ++p) {
-                    ngx_uint_t m = ((d->last_time[i] - d->start_time) % lmcf->max_interval) * lmcf->splits->nelts * lmcf->params->nelts + s * lmcf->params->nelts + p;
-                    ngx_http_graphite_record_t *record = &d->records[m];
-                    ngx_http_graphite_acc_t *a = &d->accs[i * (lmcf->splits->nelts * lmcf->params->nelts) + s * lmcf->params->nelts + p];
+            for (p = 0; p < lmcf->params->nelts; ++p) {
+                ngx_uint_t m = ((d->last_time - d->start_time) % (lmcf->max_interval + 1)) * lmcf->splits->nelts * lmcf->params->nelts + s * lmcf->params->nelts + p;
+                ngx_http_graphite_record_t *record = &d->records[m];
 
-                    a->value -= record->acc.value;
-                    a->count -= record->acc.count;
-
-                    if (interval->value == lmcf->max_interval) {
-                        record->acc.value = 0;
-                        record->acc.count = 0;
-                    }
-                }
+                record->acc.value = 0;
+                record->acc.count = 0;
             }
-            d->last_time[i]++;
         }
+        d->last_time++;
     }
 }
 
