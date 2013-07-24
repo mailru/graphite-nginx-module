@@ -161,12 +161,7 @@ typedef struct ngx_http_graphite_acc_s {
     ngx_uint_t count;
 } ngx_http_graphite_acc_t;
 
-typedef struct ngx_http_graphite_record_s {
-    ngx_http_graphite_acc_t acc;
-} ngx_http_graphite_record_t;
-
 typedef struct ngx_http_graphite_data_s {
-    ngx_http_graphite_record_t *records;
     ngx_http_graphite_acc_t *accs;
 
     time_t start_time;
@@ -769,9 +764,7 @@ ngx_http_graphite_shared_init(ngx_shm_zone_t *shm_zone, void *data)
 
     size_t shared_required_size = 0;
     shared_required_size += sizeof(ngx_http_graphite_data_t);
-    shared_required_size += sizeof(ngx_http_graphite_record_t*) * lmcf->intervals->nelts;
-    shared_required_size += sizeof(ngx_http_graphite_record_t) * (lmcf->max_interval + 1) * lmcf->splits->nelts * lmcf->params->nelts;
-    shared_required_size += sizeof(ngx_http_graphite_acc_t) * lmcf->intervals->nelts * lmcf->splits->nelts * lmcf->params->nelts;
+    shared_required_size += sizeof(ngx_http_graphite_acc_t) * (lmcf->max_interval + 1) * lmcf->splits->nelts * lmcf->params->nelts;
 
     if (sizeof(ngx_slab_pool_t) + shared_required_size > shm_zone->shm.size) {
         ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "graphite too small shared memory (minimum size is %uzb)", sizeof(ngx_slab_pool_t) + shared_required_size);
@@ -805,11 +798,8 @@ ngx_http_graphite_shared_init(ngx_shm_zone_t *shm_zone, void *data)
     ngx_http_graphite_data_t *d = (ngx_http_graphite_data_t*)p;
     p += sizeof(ngx_http_graphite_data_t);
 
-    d->records = (ngx_http_graphite_record_t*)p;
-    p += sizeof(ngx_http_graphite_record_t) * (lmcf->max_interval + 1) * lmcf->splits->nelts * lmcf->params->nelts;
-
     d->accs = (ngx_http_graphite_acc_t*)p;
-    p += sizeof(ngx_http_graphite_acc_t) * lmcf->intervals->nelts * lmcf->splits->nelts * lmcf->params->nelts;
+    p += sizeof(ngx_http_graphite_acc_t) * (lmcf->max_interval + 1) * lmcf->splits->nelts * lmcf->params->nelts;
 
     time_t ts = ngx_time();
     d->start_time = ts;
@@ -854,15 +844,15 @@ ngx_http_graphite_handler(ngx_http_request_t *r) {
     for (p = 0; p < lmcf->params->nelts; ++p) {
 
         ngx_uint_t m = ((ts - d->start_time) % (lmcf->max_interval + 1)) * lmcf->splits->nelts * lmcf->params->nelts + llcf->split * lmcf->params->nelts + p;
-        ngx_http_graphite_record_t *record = &d->records[m];
+        ngx_http_graphite_acc_t *acc = &d->accs[m];
 
-        record->acc.value += params[p];
-        record->acc.count++;
+        acc->value += params[p];
+        acc->count++;
 
-        if (record->acc.value < params[p]) {
+        if (acc->value < params[p]) {
             ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "graphite accamulator overfull");
-            record->acc.value = 0;
-            record->acc.count = 0;
+            acc->value = 0;
+            acc->count = 0;
         }
     }
 
@@ -916,9 +906,9 @@ ngx_http_graphite_timer_event_handler(ngx_event_t *ev) {
                 for (l = 0; l < interval->value; ++l) {
                     if (ts - l - 1 >= d->start_time) {
                         ngx_uint_t m = ((ts - l - 1 - d->start_time) % (lmcf->max_interval + 1)) * lmcf->splits->nelts * lmcf->params->nelts + s * lmcf->params->nelts + p;
-                        ngx_http_graphite_record_t *record = &d->records[m];
-                        a.value += record->acc.value;
-                        a.count += record->acc.count;
+                        ngx_http_graphite_acc_t *acc = &d->accs[m];
+                        a.value += acc->value;
+                        a.count += acc->count;
                     }
                  }
 
@@ -989,10 +979,10 @@ ngx_http_graphite_del_old_records(ngx_http_graphite_main_conf_t *lmcf, time_t ts
 
             for (p = 0; p < lmcf->params->nelts; ++p) {
                 ngx_uint_t m = ((d->last_time - d->start_time) % (lmcf->max_interval + 1)) * lmcf->splits->nelts * lmcf->params->nelts + s * lmcf->params->nelts + p;
-                ngx_http_graphite_record_t *record = &d->records[m];
+                ngx_http_graphite_acc_t *acc = &d->accs[m];
 
-                record->acc.value = 0;
-                record->acc.count = 0;
+                acc->value = 0;
+                acc->count = 0;
             }
         }
         d->last_time++;
