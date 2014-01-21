@@ -1180,7 +1180,7 @@ ngx_http_graphite_timer_event_handler(ngx_event_t *ev) {
                  }
 
                  double value = param->aggregate(interval, &a);
-                 b = (char*)ngx_snprintf((u_char*)b, lmcf->buffer_size - (b - buffer), "%V.%V.%V.%V_%V %.3f %T\n", &lmcf->prefix, &lmcf->host, split, &interval->name, &param->name, value, ts);
+                 b = (char*)ngx_snprintf((u_char*)b, lmcf->buffer_size - (b - buffer), "%V.%V.%V.%V_%V %.3f %T\n", &lmcf->prefix, &lmcf->host, split, &param->name, &interval->name, value, ts);
              }
          }
     }
