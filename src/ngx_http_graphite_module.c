@@ -1095,10 +1095,8 @@ static ngx_int_t
 ngx_http_graphite_custom(ngx_http_request_t *r, ngx_str_t *name, double value) {
 
     ngx_http_graphite_main_conf_t *lmcf;
-    ngx_http_graphite_loc_conf_t *llcf;
 
     lmcf = ngx_http_get_module_main_conf(r, ngx_http_graphite_module);
-    llcf = ngx_http_get_module_loc_conf(r, ngx_http_graphite_module);
 
     if (!lmcf->enable)
         return NGX_OK;
