@@ -10,8 +10,6 @@ typedef struct {
     ngx_shm_zone_t *shared;
     char *buffer;
 
-    int socket;
-
     ngx_str_t prefix;
 
     struct in_addr server;
@@ -492,12 +490,6 @@ ngx_http_graphite_config(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     if (lmcf->package_size == 0) {
         ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite config package must be positive value");
-        return NGX_CONF_ERROR;
-    }
-
-    lmcf->socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (lmcf->socket < 0) {
-        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't create socket");
         return NGX_CONF_ERROR;
     }
 
@@ -1225,6 +1217,14 @@ ngx_http_graphite_timer_event_handler(ngx_event_t *ev) {
         char *next = NULL;
         char *nl = NULL;
 
+        int fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+        if (fd < 0) {
+            ngx_log_error(NGX_LOG_ALERT, ev->log, 0, "graphite can't create socket");
+            if (!(ngx_quit || ngx_terminate || ngx_exiting))
+                ngx_add_timer(ev, lmcf->frequency);
+            return;
+        }
+
         while (*part) {
             next = part;
             nl = part;
@@ -1236,7 +1236,7 @@ ngx_http_graphite_timer_event_handler(ngx_event_t *ev) {
 
             if (nl > part) {
 
-                if (sendto(lmcf->socket, part, nl - part + 1, 0, &sin, sizeof(sin)) == -1)
+                if (sendto(fd, part, nl - part + 1, 0, &sin, sizeof(sin)) == -1)
                     ngx_log_error(NGX_LOG_ALERT, ev->log, 0, "graphite can't send udp packet");
             }
             else {
@@ -1245,6 +1245,8 @@ ngx_http_graphite_timer_event_handler(ngx_event_t *ev) {
 
             part = nl + 1;
         }
+
+        close(fd);
     }
 
     if (!(ngx_quit || ngx_terminate || ngx_exiting))
