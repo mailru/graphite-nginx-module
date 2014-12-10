@@ -79,6 +79,10 @@ static double ngx_http_graphite_param_gzip_time(ngx_http_request_t *r);
 static double ngx_http_graphite_param_upstream_time(ngx_http_request_t *r);
 static double ngx_http_graphite_param_rps(ngx_http_request_t *r);
 static double ngx_http_graphite_param_keepalive_rps(ngx_http_request_t *r);
+static double ngx_http_graphite_param_response_2xx_rps(ngx_http_request_t *r);
+static double ngx_http_graphite_param_response_3xx_rps(ngx_http_request_t *r);
+static double ngx_http_graphite_param_response_4xx_rps(ngx_http_request_t *r);
+static double ngx_http_graphite_param_response_5xx_rps(ngx_http_request_t *r);
 
 static ngx_command_t ngx_http_graphite_commands[] = {
 
@@ -169,7 +173,7 @@ static const ngx_http_graphite_arg_t ngx_http_graphite_config_args[CONFIG_ARGS_C
     { ngx_string("port"), ngx_http_graphite_config_arg_port, ngx_string("2003") },
     { ngx_string("frequency"), ngx_http_graphite_config_arg_frequency, ngx_string("60") },
     { ngx_string("intervals"), ngx_http_graphite_config_arg_intervals, ngx_string("1m") },
-    { ngx_string("params"), ngx_http_graphite_config_arg_params, ngx_string("request_time|bytes_sent|body_bytes_sent|request_length|ssl_handshake_time|ssl_cache_usage|content_time|gzip_time|upstream_time|rps|keepalive_rps") },
+    { ngx_string("params"), ngx_http_graphite_config_arg_params, ngx_string("request_time|bytes_sent|body_bytes_sent|request_length|ssl_handshake_time|ssl_cache_usage|content_time|gzip_time|upstream_time|rps|keepalive_rps|response_2xx_rps|response_3xx_rps|response_4xx_rps|response_5xx_rps") },
     { ngx_string("shared"), ngx_http_graphite_config_arg_shared, ngx_string("1m") },
     { ngx_string("buffer"), ngx_http_graphite_config_arg_buffer, ngx_string("64k") },
     { ngx_string("package"), ngx_http_graphite_config_arg_package, ngx_string("1400") },
@@ -233,7 +237,7 @@ typedef struct ngx_http_graphite_param_s {
     ngx_http_graphite_interval_t interval;
 } ngx_http_graphite_param_t;
 
-#define PARAM_COUNT 11
+#define PARAM_COUNT 15
 
 static const ngx_http_graphite_param_t ngx_http_graphite_params[PARAM_COUNT] = {
     { ngx_string("request_time"), ngx_http_graphite_param_request_time, ngx_http_graphite_aggregate_avg, { ngx_null_string, 0 } },
@@ -247,6 +251,10 @@ static const ngx_http_graphite_param_t ngx_http_graphite_params[PARAM_COUNT] = {
     { ngx_string("upstream_time"), ngx_http_graphite_param_upstream_time, ngx_http_graphite_aggregate_avg, { ngx_null_string, 0 } },
     { ngx_string("rps"), ngx_http_graphite_param_rps, ngx_http_graphite_aggregate_persec, { ngx_null_string, 0 } },
     { ngx_string("keepalive_rps"), ngx_http_graphite_param_keepalive_rps, ngx_http_graphite_aggregate_persec, { ngx_null_string, 0 } },
+    { ngx_string("response_2xx_rps"), ngx_http_graphite_param_response_2xx_rps, ngx_http_graphite_aggregate_persec, { ngx_null_string, 0 } },
+    { ngx_string("response_3xx_rps"), ngx_http_graphite_param_response_3xx_rps, ngx_http_graphite_aggregate_persec, { ngx_null_string, 0 } },
+    { ngx_string("response_4xx_rps"), ngx_http_graphite_param_response_4xx_rps, ngx_http_graphite_aggregate_persec, { ngx_null_string, 0 } },
+    { ngx_string("response_5xx_rps"), ngx_http_graphite_param_response_5xx_rps, ngx_http_graphite_aggregate_persec, { ngx_null_string, 0 } },
 };
 
 static ngx_int_t ngx_http_graphite_shared_init(ngx_shm_zone_t *shm_zone, void *data);
@@ -1458,6 +1466,42 @@ ngx_http_graphite_param_keepalive_rps(ngx_http_request_t *r) {
         return 0;
     else
         return 1;
+}
+
+static double
+ngx_http_graphite_param_response_2xx_rps(ngx_http_request_t *r) {
+
+	if (r->headers_out.status / 100 == 2)
+		return 1;
+	else
+		return 0;
+}
+
+static double
+ngx_http_graphite_param_response_3xx_rps(ngx_http_request_t *r) {
+
+	if (r->headers_out.status / 100 == 3)
+		return 1;
+	else
+		return 0;
+}
+
+static double
+ngx_http_graphite_param_response_4xx_rps(ngx_http_request_t *r) {
+
+	if (r->headers_out.status / 100 == 4)
+		return 1;
+	else
+		return 0;
+}
+
+static double
+ngx_http_graphite_param_response_5xx_rps(ngx_http_request_t *r) {
+
+	if (r->headers_out.status / 100 == 5)
+		return 1;
+	else
+		return 0;
 }
 
 static double
