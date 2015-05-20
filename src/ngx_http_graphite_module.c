@@ -23,6 +23,8 @@ typedef struct {
     ngx_array_t *custom_params;
     ngx_array_t *custom_names;
     ngx_hash_t custom_hash;
+    ngx_uint_t custom_hash_max_size;
+    ngx_uint_t custom_hash_bucket_size;
 
     size_t shared_size;
     size_t buffer_size;
@@ -91,6 +93,20 @@ static ngx_command_t ngx_http_graphite_commands[] = {
       ngx_http_graphite_config,
       NGX_HTTP_MAIN_CONF_OFFSET,
       0,
+      NULL },
+
+    { ngx_string("graphite_param_hash_max_size"),
+      NGX_HTTP_MAIN_CONF | NGX_CONF_TAKE1,
+      ngx_conf_set_num_slot,
+      NGX_HTTP_MAIN_CONF_OFFSET,
+      offsetof(ngx_http_graphite_main_conf_t, custom_hash_max_size),
+      NULL },
+
+    { ngx_string("graphite_param_hash_bucket_size"),
+      NGX_HTTP_MAIN_CONF | NGX_CONF_TAKE1,
+      ngx_conf_set_num_slot,
+      NGX_HTTP_MAIN_CONF_OFFSET,
+      offsetof(ngx_http_graphite_main_conf_t, custom_hash_bucket_size),
       NULL },
 
     { ngx_string("graphite_param"),
@@ -294,8 +310,8 @@ ngx_http_graphite_init(ngx_conf_t *cf) {
     ngx_hash_init_t hash;
     hash.hash = &lmcf->custom_hash;
     hash.key = ngx_hash_key_lc;
-    hash.max_size = 512;
-    hash.bucket_size = ngx_align(64, ngx_cacheline_size);
+    hash.max_size = lmcf->custom_hash_max_size != (ngx_uint_t)NGX_CONF_UNSET ? lmcf->custom_hash_max_size : 512;
+    hash.bucket_size = lmcf->custom_hash_bucket_size != (ngx_uint_t)NGX_CONF_UNSET ? lmcf->custom_hash_bucket_size : ngx_align(64, ngx_cacheline_size);
     hash.name = "graphite_custom_hash";
     hash.pool = cf->pool;
     hash.temp_pool = NULL;
@@ -348,6 +364,9 @@ ngx_http_graphite_create_main_conf(ngx_conf_t *cf) {
 
     if (lmcf->splits == NULL || lmcf->intervals == NULL || lmcf->params == NULL || lmcf->custom_params == NULL || lmcf->custom_names == NULL)
         return NULL;
+
+    lmcf->custom_hash_max_size = NGX_CONF_UNSET;
+    lmcf->custom_hash_bucket_size = NGX_CONF_UNSET;
 
     return lmcf;
 }
@@ -1471,37 +1490,37 @@ ngx_http_graphite_param_keepalive_rps(ngx_http_request_t *r) {
 static double
 ngx_http_graphite_param_response_2xx_rps(ngx_http_request_t *r) {
 
-	if (r->headers_out.status / 100 == 2)
-		return 1;
-	else
-		return 0;
+    if (r->headers_out.status / 100 == 2)
+        return 1;
+    else
+        return 0;
 }
 
 static double
 ngx_http_graphite_param_response_3xx_rps(ngx_http_request_t *r) {
 
-	if (r->headers_out.status / 100 == 3)
-		return 1;
-	else
-		return 0;
+    if (r->headers_out.status / 100 == 3)
+        return 1;
+    else
+        return 0;
 }
 
 static double
 ngx_http_graphite_param_response_4xx_rps(ngx_http_request_t *r) {
 
-	if (r->headers_out.status / 100 == 4)
-		return 1;
-	else
-		return 0;
+    if (r->headers_out.status / 100 == 4)
+        return 1;
+    else
+        return 0;
 }
 
 static double
 ngx_http_graphite_param_response_5xx_rps(ngx_http_request_t *r) {
 
-	if (r->headers_out.status / 100 == 5)
-		return 1;
-	else
-		return 0;
+    if (r->headers_out.status / 100 == 5)
+        return 1;
+    else
+        return 0;
 }
 
 static double
