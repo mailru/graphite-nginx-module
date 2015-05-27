@@ -800,13 +800,15 @@ ngx_http_graphite_config_arg_intervals(ngx_conf_t *cf, ngx_command_t *cmd, void 
             ngx_memcpy(interval->name.data, &value->data[s], i - s);
             interval->name.len = i - s;
 
-            if (ngx_http_graphite_parse_time(value, &interval->value) == NGX_CONF_ERROR) {
+            if (ngx_http_graphite_parse_time(&interval->name, &interval->value) == NGX_CONF_ERROR) {
                 ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite config interval is invalid");
                 return NGX_CONF_ERROR;
             }
 
             if (interval->value > lmcf->max_interval)
                 lmcf->max_interval = interval->value;
+
+            s = i + 1;
         }
     }
 
