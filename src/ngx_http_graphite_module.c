@@ -1265,7 +1265,7 @@ ngx_http_graphite_timer_event_handler(ngx_event_t *ev) {
 
             if (nl > part) {
 
-                if (sendto(fd, part, nl - part + 1, 0, &sin, sizeof(sin)) == -1)
+                if (sendto(fd, part, nl - part + 1, 0, (struct sockaddr*)&sin, sizeof(sin)) == -1)
                     ngx_log_error(NGX_LOG_ALERT, ev->log, 0, "graphite can't send udp packet");
             }
             else {
