@@ -1,3 +1,4 @@
+#include <nginx.h>
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
@@ -79,6 +80,10 @@ static double ngx_http_graphite_param_ssl_cache_usage(ngx_http_request_t *r);
 static double ngx_http_graphite_param_content_time(ngx_http_request_t *r);
 static double ngx_http_graphite_param_gzip_time(ngx_http_request_t *r);
 static double ngx_http_graphite_param_upstream_time(ngx_http_request_t *r);
+#if nginx_version >= 1009001
+static double ngx_http_graphite_param_upstream_connect_time(ngx_http_request_t *r);
+static double ngx_http_graphite_param_upstream_header_time(ngx_http_request_t *r);
+#endif
 static double ngx_http_graphite_param_rps(ngx_http_request_t *r);
 static double ngx_http_graphite_param_keepalive_rps(ngx_http_request_t *r);
 static double ngx_http_graphite_param_response_2xx_rps(ngx_http_request_t *r);
@@ -189,7 +194,11 @@ static const ngx_http_graphite_arg_t ngx_http_graphite_config_args[CONFIG_ARGS_C
     { ngx_string("port"), ngx_http_graphite_config_arg_port, ngx_string("2003") },
     { ngx_string("frequency"), ngx_http_graphite_config_arg_frequency, ngx_string("60") },
     { ngx_string("intervals"), ngx_http_graphite_config_arg_intervals, ngx_string("1m") },
+#if nginx_version >= 1009001
+    { ngx_string("params"), ngx_http_graphite_config_arg_params, ngx_string("request_time|bytes_sent|body_bytes_sent|request_length|ssl_handshake_time|ssl_cache_usage|content_time|gzip_time|upstream_time|upstream_connect_time|upstream_header_time|rps|keepalive_rps|response_2xx_rps|response_3xx_rps|response_4xx_rps|response_5xx_rps") },
+#else
     { ngx_string("params"), ngx_http_graphite_config_arg_params, ngx_string("request_time|bytes_sent|body_bytes_sent|request_length|ssl_handshake_time|ssl_cache_usage|content_time|gzip_time|upstream_time|rps|keepalive_rps|response_2xx_rps|response_3xx_rps|response_4xx_rps|response_5xx_rps") },
+#endif
     { ngx_string("shared"), ngx_http_graphite_config_arg_shared, ngx_string("1m") },
     { ngx_string("buffer"), ngx_http_graphite_config_arg_buffer, ngx_string("64k") },
     { ngx_string("package"), ngx_http_graphite_config_arg_package, ngx_string("1400") },
@@ -253,7 +262,11 @@ typedef struct ngx_http_graphite_param_s {
     ngx_http_graphite_interval_t interval;
 } ngx_http_graphite_param_t;
 
+#if nginx_version >= 1009001
+#define PARAM_COUNT 17
+#else
 #define PARAM_COUNT 15
+#endif
 
 static const ngx_http_graphite_param_t ngx_http_graphite_params[PARAM_COUNT] = {
     { ngx_string("request_time"), ngx_http_graphite_param_request_time, ngx_http_graphite_aggregate_avg, { ngx_null_string, 0 } },
@@ -265,6 +278,10 @@ static const ngx_http_graphite_param_t ngx_http_graphite_params[PARAM_COUNT] = {
     { ngx_string("content_time"), ngx_http_graphite_param_content_time, ngx_http_graphite_aggregate_avg, { ngx_null_string, 0 } },
     { ngx_string("gzip_time"), ngx_http_graphite_param_gzip_time, ngx_http_graphite_aggregate_avg, { ngx_null_string, 0 } },
     { ngx_string("upstream_time"), ngx_http_graphite_param_upstream_time, ngx_http_graphite_aggregate_avg, { ngx_null_string, 0 } },
+#if nginx_version >= 1009001
+    { ngx_string("upstream_connect_time"), ngx_http_graphite_param_upstream_connect_time, ngx_http_graphite_aggregate_avg, { ngx_null_string, 0 } },
+    { ngx_string("upstream_header_time"), ngx_http_graphite_param_upstream_header_time, ngx_http_graphite_aggregate_avg, { ngx_null_string, 0 } },
+#endif
     { ngx_string("rps"), ngx_http_graphite_param_rps, ngx_http_graphite_aggregate_persec, { ngx_null_string, 0 } },
     { ngx_string("keepalive_rps"), ngx_http_graphite_param_keepalive_rps, ngx_http_graphite_aggregate_persec, { ngx_null_string, 0 } },
     { ngx_string("response_2xx_rps"), ngx_http_graphite_param_response_2xx_rps, ngx_http_graphite_aggregate_persec, { ngx_null_string, 0 } },
@@ -1467,12 +1484,64 @@ ngx_http_graphite_param_upstream_time(ngx_http_request_t *r) {
 
     for (i = 0 ; i < r->upstream_states->nelts; ++i) {
         if (state[i].status)
+#if nginx_version >= 1009001
+            ms += (ngx_msec_int_t)(state[i].response_time);
+#else
             ms += (ngx_msec_int_t)(state[i].response_sec * 1000 + state[i].response_msec);
+#endif
     }
     ms = ngx_max(ms, 0);
 
     return (double)ms;
 }
+
+#if nginx_version >= 1009001
+static double
+ngx_http_graphite_param_upstream_connect_time(ngx_http_request_t *r) {
+
+    ngx_uint_t i;
+    ngx_msec_int_t ms;
+    ngx_http_upstream_state_t *state;
+
+    ms = 0;
+
+    if (r->upstream_states == NULL)
+        return 0;
+
+    state = r->upstream_states->elts;
+
+    for (i = 0 ; i < r->upstream_states->nelts; ++i) {
+        if (state[i].status)
+            ms += (ngx_msec_int_t)(state[i].connect_time);
+    }
+    ms = ngx_max(ms, 0);
+
+    return (double)ms;
+}
+
+static double
+ngx_http_graphite_param_upstream_header_time(ngx_http_request_t *r) {
+
+    ngx_uint_t i;
+    ngx_msec_int_t ms;
+    ngx_http_upstream_state_t *state;
+
+    ms = 0;
+
+    if (r->upstream_states == NULL)
+        return 0;
+
+    state = r->upstream_states->elts;
+
+    for (i = 0 ; i < r->upstream_states->nelts; ++i) {
+        if (state[i].status)
+            ms += (ngx_msec_int_t)(state[i].header_time);
+    }
+    ms = ngx_max(ms, 0);
+
+    return (double)ms;
+}
+#endif
 
 static double
 ngx_http_graphite_param_rps(ngx_http_request_t *r) {
