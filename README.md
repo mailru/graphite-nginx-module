@@ -9,7 +9,7 @@ An nginx module for collecting location stats into Graphite.
 Version
 =======
 
-This document describes graphite-nginx-module [v1.0.2](https://github.com/mailru/graphite-nginx-module/tags) released on 25 November 2014.
+This document describes graphite-nginx-module [v1.0.4](https://github.com/mailru/graphite-nginx-module/tags) released on 25 November 2014.
 
 
 Synopsis
@@ -133,6 +133,23 @@ avg    | average value on interval
 
 Example: see below.
 
+### graphite_param_hash_bucket_size
+**syntax:** *graphite_param_hash_max_size size;*
+
+**default:** *graphite_param_hash_max_size 64;*
+
+**context:** *http*
+
+Sets the bucket size for the params hash table.
+
+### graphite_param_hash_max_size
+**syntax:** *graphite_param_hash_max_size size;*
+
+**default:** *graphite_param_hash_max_size 512;*
+
+**context:** *http*
+
+Sets the maximum size of the params hash tables.
 
 Nginx API for Lua
 =================
@@ -169,37 +186,43 @@ location /foo/ {
 Graphs
 ======
 
-Param              | Units | Func | Description
------------------- | ----- | ---- | ------------------------------------------
-request_time       | ms    | avg  | total time spent on serving request
-bytes_sent         | bytes | avg  | http response length
-body_bytes_sent    | bytes | avg  | http response body length
-request_length     | bytes | avg  | http request length
-ssl_handshake_time | ms    | avg  | time spent on ssl handsake
-ssl_cache_usage    | %     | last | how much SSL cache used
-content_time       | ms    | avg  | time spent generating content inside nginx
-gzip_time          | ms    | avg  | time spent gzipping content ob-the-fly
-upstream_time      | ms    | avg  | time spent tailking with upstream
-rps                | rps   | sum  | total requests number per aggregation interval
-keepalive_rps      | rps   | sum  | requests number sent over previously opened keepalive connection
+Param                 | Units | Func | Description
+--------------------- | ----- | ---- | ------------------------------------------
+request_time          | ms    | avg  | total time spent on serving request
+bytes_sent            | bytes | avg  | http response length
+body_bytes_sent       | bytes | avg  | http response body length
+request_length        | bytes | avg  | http request length
+ssl_handshake_time    | ms    | avg  | time spent on ssl handsake
+ssl_cache_usage       | %     | last | how much SSL cache used
+content_time          | ms    | avg  | time spent generating content inside nginx
+gzip_time             | ms    | avg  | time spent gzipping content ob-the-fly
+upstream_time         | ms    | avg  | time spent tailking with upstream
+upstream_connect_time | ms    | avg  | time spent on upstream connect (nginx >= 1.9.1)
+upstream_header_time  | ms    | avg  | time spent on upstream header (nginx >= 1.9.1)
+rps                   | rps   | sum  | total requests number per aggregation interval
+keepalive_rps         | rps   | sum  | requests number sent over previously opened keepalive connection
+response_2xx_rps      | rps   | sum  | total responses number with 2xx code
+response_3xx_rps      | rps   | sum  | total responses number with 3xx code
+response_4xx_rps      | rps   | sum  | total responses number with 4xx code
+response_5xx_rps      | rps   | sum  | total responses number with 5xx code
 
 
 Installation
 ============
 
 #### Requirements
-* nginx: 1.2.0 - 1.5.x
-* lua-nginx-module: 0.8.6 - 0.9.4 (optional)
+* nginx: 1.2.0 - 1.9.x
+* lua-nginx-module: 0.8.6 - 0.9.16 (optional)
 
 #### Build nginx with graphite module
 ```bash
 
-wget 'http://nginx.org/download/nginx-1.4.6.tar.gz'
-tar -xzf nginx-1.4.6.tar.gz
-cd nginx-1.4.6/
+wget 'http://nginx.org/download/nginx-1.9.2.tar.gz'
+tar -xzf nginx-1.9.2.tar.gz
+cd nginx-1.9.2/
 
-# patch to collect ssl_cache_usage, ssl_handshake_time content_time, gzip_time graphs (optional)
-patch -p1 < /path/to/graphite-nginx-module/graphite_module.patch
+# patch to collect ssl_cache_usage, ssl_handshake_time content_time, gzip_time, upstream_time, upstream_connect_time, upstream_header_time graphs (optional)
+patch -p1 < /path/to/graphite-nginx-module/graphite_module_v1_7_7.patch
 
 ./configure --add-module=/path/to/graphite-nginx-module
 
@@ -210,16 +233,16 @@ make install
 #### Build nginx with lua and graphite modules
 ```bash
 
-wget 'https://github.com/chaoslawful/lua-nginx-module/archive/v0.9.4.tar.gz'
-tar -xzf v0.9.4.tar.gz
-cd lua-nginx-module-0.9.4/
+wget 'https://github.com/chaoslawful/lua-nginx-module/archive/v0.9.16.tar.gz'
+tar -xzf v0.9.16.tar.gz
+cd lua-nginx-module-0.9.16/
 # patch to add api for sending metrics from lua code (optional)
-patch -p1 < /path/to/graphite-nginx-module/lua_module_v0_9_3.patch
+patch -p1 < /path/to/graphite-nginx-module/lua_module_v0_9_11.patch
 cd ..
 
-wget 'http://nginx.org/download/nginx-1.4.6.tar.gz'
-tar -xzf nginx-1.4.6.tar.gz
-cd nginx-1.4.6/
+wget 'http://nginx.org/download/nginx-1.9.2.tar.gz'
+tar -xzf nginx-1.9.2.tar.gz
+cd nginx-1.9.2/
 
 # patch to collect ssl_cache_usage, ssl_handshake_time content_time, gzip_time graphs (optional)
 patch -p1 < /path/to/graphite-nginx-module/graphite_module.patch
