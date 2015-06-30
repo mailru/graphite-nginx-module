@@ -244,8 +244,8 @@ wget 'http://nginx.org/download/nginx-1.9.2.tar.gz'
 tar -xzf nginx-1.9.2.tar.gz
 cd nginx-1.9.2/
 
-# patch to collect ssl_cache_usage, ssl_handshake_time content_time, gzip_time graphs (optional)
-patch -p1 < /path/to/graphite-nginx-module/graphite_module.patch
+# patch to collect ssl_cache_usage, ssl_handshake_time content_time, gzip_time, upstream_time, upstream_connect_time, upstream_header_time graphs (optional)
+patch -p1 < /path/to/graphite-nginx-module/graphite_module_v1_7_7.patch
 
 ./configure \
     --add-module=/path/to/ngx_devel_kit \
