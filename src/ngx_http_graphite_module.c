@@ -56,6 +56,7 @@ static char *ngx_http_graphite_data(ngx_conf_t *cf, ngx_command_t *cmd, void *co
 static ngx_int_t ngx_http_graphite_custom(ngx_http_request_t *r, ngx_str_t *name, double value);
 
 static char *ngx_http_graphite_config_arg_prefix(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, ngx_str_t *value);
+static char *ngx_http_graphite_config_arg_host(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, ngx_str_t *value);
 static char *ngx_http_graphite_config_arg_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, ngx_str_t *value);
 static char *ngx_http_graphite_config_arg_port(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, ngx_str_t *value);
 static char *ngx_http_graphite_config_arg_frequency(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, ngx_str_t *value);
@@ -186,10 +187,11 @@ typedef struct ngx_http_graphite_arg_s {
     ngx_str_t deflt;
 } ngx_http_graphite_arg_t;
 
-#define CONFIG_ARGS_COUNT 9
+#define CONFIG_ARGS_COUNT 10
 
 static const ngx_http_graphite_arg_t ngx_http_graphite_config_args[CONFIG_ARGS_COUNT] = {
     { ngx_string("prefix"), ngx_http_graphite_config_arg_prefix, ngx_null_string },
+    { ngx_string("host"), ngx_http_graphite_config_arg_host, ngx_null_string },
     { ngx_string("server"), ngx_http_graphite_config_arg_server, ngx_null_string },
     { ngx_string("port"), ngx_http_graphite_config_arg_port, ngx_string("2003") },
     { ngx_string("frequency"), ngx_http_graphite_config_arg_frequency, ngx_string("60") },
@@ -497,6 +499,26 @@ ngx_http_graphite_config(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         return NGX_CONF_ERROR;
     }
 
+    if (lmcf->host.len == 0) {
+        char host[HOST_LEN];
+        gethostname(host, HOST_LEN);
+        host[HOST_LEN - 1] = '\0';
+        char *dot = strchr(host, '.');
+        if (dot)
+            *dot = '\0';
+
+        size_t host_size = strlen(host);
+
+        lmcf->host.data = ngx_palloc(cf->pool, host_size);
+        if (!lmcf->host.data) {
+            ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't alloc memory");
+            return NGX_CONF_ERROR;
+        }
+
+        ngx_memcpy(lmcf->host.data, host, host_size);
+        lmcf->host.len = host_size;
+    }
+
     if (lmcf->server.s_addr == 0) {
         ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite config server not set");
         return NGX_CONF_ERROR;
@@ -568,24 +590,6 @@ ngx_http_graphite_config(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't alloc memory");
         return NGX_CONF_ERROR;
     }
-
-    char host[HOST_LEN];
-    gethostname(host, HOST_LEN);
-    host[HOST_LEN - 1] = '\0';
-    char *dot = strchr(host, '.');
-    if (dot)
-        *dot = '\0';
-
-    size_t host_size = strlen(host);
-
-    lmcf->host.data = ngx_palloc(cf->pool, host_size);
-    if (!lmcf->host.data) {
-        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't alloc memory");
-        return NGX_CONF_ERROR;
-    }
-
-    ngx_memcpy(lmcf->host.data, host, host_size);
-    lmcf->host.len = host_size;
 
     lmcf->enable = 1;
 
@@ -730,6 +734,23 @@ ngx_http_graphite_config_arg_prefix(ngx_conf_t *cf, ngx_command_t *cmd, void *co
 
     ngx_memcpy(lmcf->prefix.data, value->data, value->len);
     lmcf->prefix.len = value->len;
+
+    return NGX_CONF_OK;
+}
+
+static char *
+ngx_http_graphite_config_arg_host(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, ngx_str_t *value) {
+
+    ngx_http_graphite_main_conf_t *lmcf = conf;
+    lmcf->host.data = ngx_palloc(cf->pool, value->len);
+
+    if (!lmcf->host.data) {
+        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't alloc memory");
+        return NGX_CONF_ERROR;
+    }
+
+    ngx_memcpy(lmcf->host.data, value->data, value->len);
+    lmcf->host.len = value->len;
 
     return NGX_CONF_OK;
 }
@@ -1213,12 +1234,12 @@ ngx_http_graphite_timer_event_handler(ngx_event_t *ev) {
                         a.value += acc->value;
                         a.count += acc->count;
                     }
-                 }
+                }
 
-                 double value = param->aggregate(interval, &a);
-                 b = (char*)ngx_snprintf((u_char*)b, lmcf->buffer_size - (b - buffer), "%V.%V.%V.%V_%V %.3f %T\n", &lmcf->prefix, &lmcf->host, split, &param->name, &interval->name, value, ts);
-             }
-         }
+                double value = param->aggregate(interval, &a);
+                b = (char*)ngx_snprintf((u_char*)b, lmcf->buffer_size - (b - buffer), "%V.%V.%V.%V_%V %.3f %T\n", &lmcf->prefix, &lmcf->host, split, &param->name, &interval->name, value, ts);
+            }
+        }
     }
 
     for (p = 0; p < lmcf->custom_params->nelts; ++p) {
