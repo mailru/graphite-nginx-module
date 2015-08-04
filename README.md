@@ -49,17 +49,18 @@ Directives
 
 Specify global settings for a whole server instance.
 
-Param     | Required | Default | Description
---------- | -------- | ------- | -----------
-prefix    | Yes      |         | path prefix for all graphs
-server    | Yes      |         | carbon-cache server IP address
-port      |          | 2003    | carbon-cache server UDP port
-frequency |          | 60      | how often send values to Graphite (seconds)
-intervals |          | 1m      | aggregation intervals, time interval list, vertical bar separator (`m` - minutes)
-params    |          | *       | limit metrics list to track, vertical bar separator
-shared    |          | 2m      | shared memory size, increase in case of `too small shared memory` error
-buffer    |          | 64k     | network buffer size, increase in case of `too small buffer size` error
-package   |          | 1400    | maximum UDP packet size
+Param     | Required | Default       | Description
+--------- | -------- | ------------- | -----------
+prefix    | Yes      |               | path prefix for all graphs
+host      |          | gethostname() | host name for all graphs
+server    | Yes      |               | carbon-cache server IP address
+port      |          | 2003          | carbon-cache server UDP port
+frequency |          | 60            | how often send values to Graphite (seconds)
+intervals |          | 1m            | aggregation intervals, time interval list, vertical bar separator (`m` - minutes)
+params    |          | *             | limit metrics list to track, vertical bar separator
+shared    |          | 2m            | shared memory size, increase in case of `too small shared memory` error
+buffer    |          | 64k           | network buffer size, increase in case of `too small buffer size` error
+package   |          | 1400          | maximum UDP packet size
 
 Example (standard):
 
