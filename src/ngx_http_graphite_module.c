@@ -1468,7 +1468,12 @@ ngx_http_graphite_param_content_time(ngx_http_request_t *r) {
 
     ngx_msec_int_t ms;
 
+    ms = 0;
+
+#if (defined(NGX_GRAPHITE_PATCH))
     ms = (ngx_msec_int_t)((r->content_end_sec - r->content_start_sec) * 1000 + (r->content_end_msec - r->content_start_msec));
+#endif
+
     ms = ngx_max(ms, 0);
 
     return (double)ms;
@@ -1481,7 +1486,7 @@ ngx_http_graphite_param_gzip_time(ngx_http_request_t *r) {
 
     ms = 0;
 
-#if (NGX_HTTP_GZIP)
+#if (defined(NGX_GRAPHITE_PATCH) && (NGX_HTTP_GZIP))
     ms = (ngx_msec_int_t)((r->gzip_end_sec - r->gzip_start_sec) * 1000 + (r->gzip_end_msec - r->gzip_start_msec));
 #endif
     ms = ngx_max(ms, 0);
