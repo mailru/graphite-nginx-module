@@ -51,7 +51,7 @@ Specify global settings for a whole server instance.
 
 Param     | Required | Default       | Description
 --------- | -------- | ------------- | -----------
-prefix    | Yes      |               | path prefix for all graphs
+prefix    |          |               | path prefix for all graphs
 host      |          | gethostname() | host name for all graphs
 server    | Yes      |               | carbon-cache server IP address
 port      |          | 2003          | carbon-cache server UDP port
@@ -61,6 +61,7 @@ params    |          | *             | limit metrics list to track, vertical bar
 shared    |          | 2m            | shared memory size, increase in case of `too small shared memory` error
 buffer    |          | 64k           | network buffer size, increase in case of `too small buffer size` error
 package   |          | 1400          | maximum UDP packet size
+template  |          |               | template for graph name (default is $prefix.$host.$split.$param_$interval) 
 
 Example (standard):
 
@@ -74,7 +75,7 @@ Example (custom):
 
 ```nginx
 http {
-    graphite_config prefix=playground server=127.0.0.1 intervals=1m|5m|15m params=rps|request_time|upstream_time;
+    graphite_config prefix=playground server=127.0.0.1 intervals=1m|5m|15m params=rps|request_time|upstream_time template=$prefix.$host.$split.$param_$interval;
 }
 ```
 
