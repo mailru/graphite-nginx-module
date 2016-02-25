@@ -315,7 +315,7 @@ static const ngx_http_graphite_template_arg_t ngx_http_graphite_template_args[TE
     { ngx_string("prefix"), TEMPLATE_VARIABLE_PREFIX },
     { ngx_string("host"), TEMPLATE_VARIABLE_HOST },
     { ngx_string("split"), TEMPLATE_VARIABLE_SPLIT },
-    { ngx_string("name"), TEMPLATE_VARIABLE_PARAM },
+    { ngx_string("param"), TEMPLATE_VARIABLE_PARAM },
     { ngx_string("interval"), TEMPLATE_VARIABLE_INTERVAL },
 };
 
