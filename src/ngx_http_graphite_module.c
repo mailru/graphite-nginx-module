@@ -33,7 +33,13 @@ typedef struct {
 
     ngx_array_t *template;
 
+    ngx_uint_t split;
+
 } ngx_http_graphite_main_conf_t;
+
+typedef struct {
+    ngx_uint_t split;
+} ngx_http_graphite_srv_conf_t;
 
 typedef struct {
     ngx_uint_t split;
@@ -46,6 +52,7 @@ static ngx_int_t ngx_http_graphite_init(ngx_conf_t *cf);
 static ngx_int_t ngx_http_graphite_process_init(ngx_cycle_t *cycle);
 
 static void *ngx_http_graphite_create_main_conf(ngx_conf_t *cf);
+static void *ngx_http_graphite_create_srv_conf(ngx_conf_t *cf);
 static void *ngx_http_graphite_create_loc_conf(ngx_conf_t *cf);
 
 #if (NGX_SSL)
@@ -68,10 +75,14 @@ static char *ngx_http_graphite_config_arg_shared(ngx_conf_t *cf, ngx_command_t *
 static char *ngx_http_graphite_config_arg_buffer(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, ngx_str_t *value);
 static char *ngx_http_graphite_config_arg_package(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, ngx_str_t *value);
 static char *ngx_http_graphite_config_arg_template(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, ngx_str_t *value);
+
 static char *ngx_http_graphite_param_arg_name(ngx_conf_t *cf, ngx_command_t *cmd, void *data, ngx_str_t *value);
 static char *ngx_http_graphite_param_arg_aggregate(ngx_conf_t *cf, ngx_command_t *cmd, void *data, ngx_str_t *value);
 static char *ngx_http_graphite_param_arg_interval(ngx_conf_t *cf, ngx_command_t *cmd, void *data, ngx_str_t *value);
 
+static ngx_uint_t ngx_http_graphite_add_split(ngx_conf_t *cf, ngx_array_t *splits, ngx_str_t *split);
+
+static char *ngx_http_graphite_parse_string(ngx_conf_t *cf, ngx_str_t *value, ngx_str_t *result);
 static char *ngx_http_graphite_parse_size(ngx_str_t *value, size_t *result);
 static char *ngx_http_graphite_parse_time(ngx_str_t *value, ngx_uint_t *result);
 
@@ -126,9 +137,9 @@ static ngx_command_t ngx_http_graphite_commands[] = {
       NULL },
 
     { ngx_string("graphite_data"),
-      NGX_HTTP_LOC_CONF | NGX_HTTP_LIF_CONF | NGX_CONF_TAKE1,
+      NGX_HTTP_MAIN_CONF | NGX_HTTP_SRV_CONF | NGX_HTTP_LOC_CONF | NGX_HTTP_LIF_CONF | NGX_CONF_TAKE1,
       ngx_http_graphite_data,
-      NGX_HTTP_LOC_CONF_OFFSET,
+      0,
       0,
       NULL },
 
@@ -149,7 +160,7 @@ static ngx_http_module_t ngx_http_graphite_module_ctx = {
     ngx_http_graphite_create_main_conf,    /* create main configuration */
     NULL,                                  /* init main configuration */
 
-    NULL,                                  /* create server configuration */
+    ngx_http_graphite_create_srv_conf,     /* create server configuration */
     NULL,                                  /* merge server configuration */
 
     ngx_http_graphite_create_loc_conf,     /* create location configuration */
@@ -419,10 +430,26 @@ ngx_http_graphite_create_main_conf(ngx_conf_t *cf) {
         return NULL;
     }
 
+    lmcf->split = SPLIT_EMPTY;
+
     lmcf->custom_hash_max_size = NGX_CONF_UNSET;
     lmcf->custom_hash_bucket_size = NGX_CONF_UNSET;
 
     return lmcf;
+}
+
+static void *
+ngx_http_graphite_create_srv_conf(ngx_conf_t *cf) {
+
+    ngx_http_graphite_srv_conf_t *lscf;
+    lscf = ngx_pcalloc(cf->pool, sizeof(ngx_http_graphite_srv_conf_t));
+
+    if (lscf == NULL)
+        return NULL;
+
+    lscf->split = SPLIT_EMPTY;
+
+    return lscf;
 }
 
 static void *
@@ -705,10 +732,12 @@ static char *
 ngx_http_graphite_data(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
 
     ngx_http_graphite_main_conf_t *lmcf;
+    ngx_http_graphite_srv_conf_t *lscf;
     ngx_http_graphite_loc_conf_t *llcf;
 
     lmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_graphite_module);
-    llcf = (ngx_http_graphite_loc_conf_t*)conf;;
+    lscf = ngx_http_conf_get_module_srv_conf(cf, ngx_http_graphite_module);
+    llcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_graphite_module);
 
     if (!lmcf->enable) {
         ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite config not set");
@@ -717,36 +746,16 @@ ngx_http_graphite_data(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
 
     ngx_str_t *split = &((ngx_str_t*)cf->args->elts)[1];
 
-    ngx_uint_t find = 0;
-    ngx_uint_t i = 0;
-    for (i = 0; i < lmcf->splits->nelts; ++i) {
+    ngx_uint_t s = ngx_http_graphite_add_split(cf, lmcf->splits, split);
+    if (s == SPLIT_EMPTY)
+        return NGX_CONF_ERROR;
 
-        ngx_str_t *variant = &((ngx_str_t*)lmcf->splits->elts)[i];
-        if ((variant->len == split->len) && !ngx_strncmp(variant->data, split->data, split->len)) {
-            find = 1;
-            llcf->split = i;
-            break;
-        }
-    }
-
-    if (!find) {
-        llcf->split = lmcf->splits->nelts;
-
-        ngx_str_t *n = ngx_array_push(lmcf->splits);
-        if (!n) {
-            ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't alloc memory");
-            return NGX_CONF_ERROR;
-        }
-
-        n->data = ngx_palloc(cf->pool, split->len);
-        if (!n->data) {
-            ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't alloc memory");
-            return NGX_CONF_ERROR;
-        }
-
-        ngx_memcpy(n->data, split->data, split->len);
-        n->len = split->len;
-    }
+    if (cf->cmd_type & NGX_HTTP_MAIN_CONF)
+        lmcf->split = s;
+    else if (cf->cmd_type & NGX_HTTP_SRV_CONF)
+        lscf->split = s;
+    else
+        llcf->split = s;
 
     return NGX_CONF_OK;
 }
@@ -754,35 +763,21 @@ ngx_http_graphite_data(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
 static char *
 ngx_http_graphite_config_arg_prefix(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, ngx_str_t *value) {
 
-    ngx_http_graphite_main_conf_t *lmcf = conf;
-    lmcf->prefix.data = ngx_palloc(cf->pool, value->len);
+    ngx_http_graphite_main_conf_t *lmcf;
 
-    if (!lmcf->prefix.data) {
-        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't alloc memory");
-        return NGX_CONF_ERROR;
-    }
+    lmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_graphite_module);
 
-    ngx_memcpy(lmcf->prefix.data, value->data, value->len);
-    lmcf->prefix.len = value->len;
-
-    return NGX_CONF_OK;
+    return ngx_http_graphite_parse_string(cf, value, &lmcf->prefix);
 }
 
 static char *
 ngx_http_graphite_config_arg_host(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, ngx_str_t *value) {
 
-    ngx_http_graphite_main_conf_t *lmcf = conf;
-    lmcf->host.data = ngx_palloc(cf->pool, value->len);
+    ngx_http_graphite_main_conf_t *lmcf;
 
-    if (!lmcf->host.data) {
-        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't alloc memory");
-        return NGX_CONF_ERROR;
-    }
+    lmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_graphite_module);
 
-    ngx_memcpy(lmcf->host.data, value->data, value->len);
-    lmcf->host.len = value->len;
-
-    return NGX_CONF_OK;
+    return ngx_http_graphite_parse_string(cf, value, &lmcf->host);
 }
 
 #define SERVER_LEN 255
@@ -1110,6 +1105,47 @@ ngx_http_graphite_param_arg_interval(ngx_conf_t *cf, ngx_command_t *cmd, void *d
     return NGX_CONF_OK;
 }
 
+static ngx_uint_t
+ngx_http_graphite_add_split(ngx_conf_t *cf, ngx_array_t *splits, ngx_str_t *split) {
+
+    ngx_uint_t i = 0;
+    for (i = 0; i < splits->nelts; ++i) {
+        ngx_str_t *variant = &((ngx_str_t*)splits->elts)[i];
+        if ((variant->len == split->len) && !ngx_strncmp(variant->data, split->data, split->len))
+            return i;
+    }
+
+    ngx_str_t *n = ngx_array_push(splits);
+    if (!n) {
+        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't alloc memory");
+        return SPLIT_EMPTY;
+    }
+
+    n->data = ngx_pstrdup(cf->pool, split);
+    if (!n->data) {
+        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't alloc memory");
+        return SPLIT_EMPTY;
+    }
+
+    n->len = split->len;
+
+    return splits->nelts - 1;
+}
+
+static char *
+ngx_http_graphite_parse_string(ngx_conf_t *cf, ngx_str_t *value, ngx_str_t *result) {
+
+    result->data = ngx_pstrdup(cf->pool, value);
+    if (!result->data) {
+        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't alloc memory");
+        return NGX_CONF_ERROR;
+    }
+
+    result->len = value->len;
+
+    return NGX_CONF_OK;
+}
+
 static char *
 ngx_http_graphite_parse_size(ngx_str_t *value, ngx_uint_t *result) {
 
@@ -1234,20 +1270,44 @@ ngx_http_graphite_shared_init(ngx_shm_zone_t *shm_zone, void *data)
     return NGX_OK;
 }
 
+static void
+ngx_http_graphite_add_data(ngx_http_request_t *r, ngx_http_graphite_data_t *data, time_t ts, ngx_uint_t split, ngx_uint_t param, double *params) {
+
+    if (split == SPLIT_EMPTY)
+        return;
+
+    ngx_http_graphite_main_conf_t *lmcf;
+
+    lmcf = ngx_http_get_module_main_conf(r, ngx_http_graphite_module);
+
+    ngx_uint_t m = ((ts - data->start_time) % (lmcf->max_interval + 1)) * lmcf->splits->nelts * lmcf->params->nelts + split * lmcf->params->nelts + param;
+    ngx_http_graphite_acc_t *acc = &data->accs[m];
+
+    acc->value += params[param];
+    acc->count++;
+}
+
 ngx_int_t
 ngx_http_graphite_handler(ngx_http_request_t *r) {
 
     ngx_http_graphite_main_conf_t *lmcf;
+    ngx_http_graphite_srv_conf_t *lscf;
     ngx_http_graphite_loc_conf_t *llcf;
 
     lmcf = ngx_http_get_module_main_conf(r, ngx_http_graphite_module);
+    lscf = ngx_http_get_module_srv_conf(r, ngx_http_graphite_module);
     llcf = ngx_http_get_module_loc_conf(r, ngx_http_graphite_module);
 
     if (!lmcf->enable)
         return NGX_OK;
 
-    if (llcf->split == SPLIT_EMPTY)
+    if (lmcf->split == SPLIT_EMPTY && lscf->split == SPLIT_EMPTY && llcf->split == SPLIT_EMPTY)
         return NGX_OK;
+
+    ngx_slab_pool_t *shpool = (ngx_slab_pool_t*)lmcf->shared->shm.addr;
+    ngx_http_graphite_data_t *data = (ngx_http_graphite_data_t*)shpool->data;
+
+    time_t ts = ngx_time();
 
     double *params = ngx_http_graphite_get_params(r);
     if (params == NULL) {
@@ -1255,11 +1315,6 @@ ngx_http_graphite_handler(ngx_http_request_t *r) {
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "graphite can't get params");
         return NGX_OK;
     }
-
-    ngx_slab_pool_t *shpool = (ngx_slab_pool_t*)lmcf->shared->shm.addr;
-    ngx_http_graphite_data_t *d = (ngx_http_graphite_data_t*)shpool->data;
-
-    time_t ts = ngx_time();
 
     ngx_shmtx_lock(&shpool->mutex);
 
@@ -1270,12 +1325,9 @@ ngx_http_graphite_handler(ngx_http_request_t *r) {
         ngx_http_graphite_param_t *param = &((ngx_http_graphite_param_t*)lmcf->params->elts)[p];
 
         if (param->get) {
-
-            ngx_uint_t m = ((ts - d->start_time) % (lmcf->max_interval + 1)) * lmcf->splits->nelts * lmcf->params->nelts + llcf->split * lmcf->params->nelts + p;
-            ngx_http_graphite_acc_t *acc = &d->accs[m];
-
-            acc->value += params[p];
-            acc->count++;
+            ngx_http_graphite_add_data(r, data, ts, lmcf->split, p, params);
+            ngx_http_graphite_add_data(r, data, ts, lscf->split, p, params);
+            ngx_http_graphite_add_data(r, data, ts, llcf->split, p, params);
         }
     }
 
