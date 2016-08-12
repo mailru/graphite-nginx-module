@@ -23,9 +23,9 @@ typedef struct {
     ngx_array_t *params;
     ngx_array_t *custom_params;
     ngx_array_t *custom_names;
-    ngx_hash_t custom_hash;
-    ngx_uint_t custom_hash_max_size;
-    ngx_uint_t custom_hash_bucket_size;
+    ngx_hash_t param_hash;
+    ngx_uint_t param_hash_max_size;
+    ngx_uint_t param_hash_bucket_size;
 
     size_t shared_size;
     size_t buffer_size;
@@ -119,14 +119,14 @@ static ngx_command_t ngx_http_graphite_commands[] = {
       NGX_HTTP_MAIN_CONF | NGX_CONF_TAKE1,
       ngx_conf_set_num_slot,
       NGX_HTTP_MAIN_CONF_OFFSET,
-      offsetof(ngx_http_graphite_main_conf_t, custom_hash_max_size),
+      offsetof(ngx_http_graphite_main_conf_t, param_hash_max_size),
       NULL },
 
     { ngx_string("graphite_param_hash_bucket_size"),
       NGX_HTTP_MAIN_CONF | NGX_CONF_TAKE1,
       ngx_conf_set_num_slot,
       NGX_HTTP_MAIN_CONF_OFFSET,
-      offsetof(ngx_http_graphite_main_conf_t, custom_hash_bucket_size),
+      offsetof(ngx_http_graphite_main_conf_t, param_hash_bucket_size),
       NULL },
 
     { ngx_string("graphite_param"),
@@ -370,11 +370,11 @@ ngx_http_graphite_init(ngx_conf_t *cf) {
     lmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_graphite_module);
 
     ngx_hash_init_t hash;
-    hash.hash = &lmcf->custom_hash;
+    hash.hash = &lmcf->param_hash;
     hash.key = ngx_hash_key_lc;
-    hash.max_size = lmcf->custom_hash_max_size != (ngx_uint_t)NGX_CONF_UNSET ? lmcf->custom_hash_max_size : 512;
-    hash.bucket_size = lmcf->custom_hash_bucket_size != (ngx_uint_t)NGX_CONF_UNSET ? lmcf->custom_hash_bucket_size : ngx_align(64, ngx_cacheline_size);
-    hash.name = "graphite_custom_hash";
+    hash.max_size = lmcf->param_hash_max_size != (ngx_uint_t)NGX_CONF_UNSET ? lmcf->param_hash_max_size : 512;
+    hash.bucket_size = lmcf->param_hash_bucket_size != (ngx_uint_t)NGX_CONF_UNSET ? lmcf->param_hash_bucket_size : ngx_align(64, ngx_cacheline_size);
+    hash.name = "graphite_param_hash";
     hash.pool = cf->pool;
     hash.temp_pool = NULL;
 
@@ -432,8 +432,8 @@ ngx_http_graphite_create_main_conf(ngx_conf_t *cf) {
 
     lmcf->split = SPLIT_EMPTY;
 
-    lmcf->custom_hash_max_size = NGX_CONF_UNSET;
-    lmcf->custom_hash_bucket_size = NGX_CONF_UNSET;
+    lmcf->param_hash_max_size = NGX_CONF_UNSET;
+    lmcf->param_hash_bucket_size = NGX_CONF_UNSET;
 
     return lmcf;
 }
@@ -1356,7 +1356,7 @@ ngx_http_graphite_custom(ngx_http_request_t *r, ngx_str_t *name, double value) {
     ngx_http_graphite_del_old_records(lmcf, ts);
 
     ngx_uint_t key = ngx_hash_key_lc(name->data, name->len);
-    ngx_uint_t p = (ngx_uint_t)ngx_hash_find(&lmcf->custom_hash, key, name->data, name->len);
+    ngx_uint_t p = (ngx_uint_t)ngx_hash_find(&lmcf->param_hash, key, name->data, name->len);
 
     if (p) {
         ngx_uint_t m = ((ts - d->start_time) % (lmcf->max_interval + 1)) * lmcf->custom_params->nelts + (p - 1);
