@@ -5,12 +5,10 @@ An nginx module for collecting location stats into Graphite.
 
 *This module is not distributed with the Nginx source.* See [the installation instructions](#installation).
 
-
 Version
 =======
 
-This document describes graphite-nginx-module [v1.0.4](https://github.com/mailru/graphite-nginx-module/tags) released on 25 November 2014.
-
+This document describes graphite-nginx-module [v1.1.0](https://github.com/mailru/graphite-nginx-module/tags) released on 25 November 2014.
 
 Synopsis
 ========
@@ -36,6 +34,7 @@ Stats aggegation made on the fly in fixed size buffer allocated on server start 
 This module is in active use on [Mail.Ru Sites](http://mail.ru/) (one of largest web-services in Russia) for about a year and considered stable and well-tested.
 
 To collect metrics from nginx core modules (ssl, gzip, upstream) little patch must be applied on nginx source tree. See [the installation instructions](#installation).
+You can build this module as a dynamic one, but then you won't be able to collect metrics from nginx core modules (ssl, gzip, upstream) and lua functions.
 
 
 Directives
@@ -79,12 +78,36 @@ http {
 }
 ```
 
+### graphite_default_data
+
+**syntax:** *graphite_default_data &lt;path prefix&gt; [if=condition]*
+
+**context:** *http, server*
+
+Create measurement point in all child locations.
+You can use "$location" variable which represents the name of the current location with all non-alphanumeric characters replaced with "\_." Leading and trailing "\_" are deleted.
+
+Example:
+
+```nginx
+
+   graphite_default_data nginx.$location;
+
+   location /foo/ {
+   }
+
+   location /bar/ {
+   }
+```
+
+Data for /foo/ will be sent to nginx.foo, data for /bar/ - to nginx.bar.
+The if parameter (1.1.0) enables conditional logging. A request will not be logged if the condition evaluates to "0" or an empty string.
 
 ### graphite_data
 
-**syntax:** *graphite_data &lt;path prefix&gt;*
+**syntax:** *graphite_data &lt;path prefix&gt; [if=&lt;condition&gt;]*
 
-**context:** *location, if*
+**context:** *http, server, location, if*
 
 Create measurement point in specific location.
 
@@ -97,22 +120,23 @@ Example:
     }
 ```
 
-Multiply splits inside one location can be implemented using `if` directive.
+The if parameter (1.1.0) enables conditional logging. A request will not be logged if the condition evaluates to "0" or an empty string.
 
 Example:
 
 ```nginx
 
+    map $scheme $is_http { http 1; }
+    map $scheme $is_https { https 1; }
+
+	...
+
     location /bar/ {
-        if ($scheme = http) {
-            graphite_data nginx.http.bar;
-        }
-        if ($scheme = https) {
-            graphite_data nginx.https.bar;
-        }
+        graphite_data nginx.all.bar;
+        graphite_data nginx.http.bar if=$is_http;
+        graphite_data nginx.https.bar if=$is_https;
     }
 ```
-
 
 ### graphite_param
 
@@ -184,7 +208,6 @@ location /foo/ {
 }
 ```
 
-
 Graphs
 ======
 
@@ -213,8 +236,8 @@ Installation
 ============
 
 #### Requirements
-* nginx: 1.2.0 - 1.9.x
-* lua-nginx-module: 0.8.6 - 0.9.16 (optional)
+* nginx: 1.2.0 - 1.10.x
+* lua-nginx-module: 0.8.6 - 0.10.2 (optional)
 
 #### Build nginx with graphite module
 ```bash
@@ -227,6 +250,19 @@ cd nginx-1.9.2/
 patch -p1 < /path/to/graphite-nginx-module/graphite_module_v1_7_7.patch
 
 ./configure --add-module=/path/to/graphite-nginx-module
+
+make
+make install
+```
+
+#### Build nginx with graphite dynamic module
+```bash
+
+wget 'http://nginx.org/download/nginx-1.9.2.tar.gz'
+tar -xzf nginx-1.9.2.tar.gz
+cd nginx-1.9.2/
+
+./configure --add-dynamic-module=/path/to/graphite-nginx-module
 
 make
 make install
@@ -263,7 +299,7 @@ Instructions on installing lua-nginx-module can be found in [documentation on lu
 License
 =======
 
-Copyright (c) 2013-2014, Mail.Ru Ltd.
+Copyright (c) 2013-2016, Mail.Ru Ltd.
 
 This module is licensed under the terms of the BSD license.
 
