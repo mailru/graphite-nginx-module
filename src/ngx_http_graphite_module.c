@@ -1630,8 +1630,10 @@ ngx_http_graphite_handler(ngx_http_request_t *r) {
         ngx_http_graphite_param_t *param = &((ngx_http_graphite_param_t*)gmcf->params->elts)[p];
 
         if (param->get) {
-            ngx_http_graphite_add_datas(r, storage, ts, gmcf->datas, p, params[p]);
-            ngx_http_graphite_add_datas(r, storage, ts, gscf->datas, p, params[p]);
+            if (r == r->main) {
+                ngx_http_graphite_add_datas(r, storage, ts, gmcf->datas, p, params[p]);
+                ngx_http_graphite_add_datas(r, storage, ts, gscf->datas, p, params[p]);
+            }
             ngx_http_graphite_add_datas(r, storage, ts, glcf->datas, p, params[p]);
         }
     }
