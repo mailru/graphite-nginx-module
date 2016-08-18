@@ -519,6 +519,9 @@ ngx_http_graphite_create_loc_conf(ngx_conf_t *cf) {
         return NULL;
     }
 
+    if (!cf->args)
+        return glcf;
+
     ngx_str_t *directive = &((ngx_str_t*)cf->args->elts)[0];
     ngx_str_t location = ngx_string("location");
 
