@@ -1,4 +1,5 @@
 ngx_feature="Graphite module"
+have=NGX_GRAPHITE . auto/have
 
 ngx_addon_name=ngx_http_graphite_module
 
@@ -8,7 +9,6 @@ if test -n "$ngx_module_link"; then
     ngx_module_srcs="$ngx_addon_dir/src/ngx_http_graphite_module.c"
     . auto/module
 else
-    have=NGX_GRAPHITE . auto/have
     HTTP_MODULES="$HTTP_MODULES ngx_http_graphite_module"
     NGX_ADDON_SRCS="$NGX_ADDON_SRCS \
                     $ngx_addon_dir/src/ngx_http_graphite_module.c \

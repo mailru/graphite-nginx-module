@@ -1923,7 +1923,7 @@ ngx_http_graphite_param_ssl_handshake_time(ngx_http_request_t *r) {
 
     ms = 0;
 
-#if (NGX_SSL)
+#if (defined(NGX_GRAPHITE_PATCH) && (NGX_SSL))
     if (r->connection->requests == 1) {
         ngx_ssl_connection_t *ssl = r->connection->ssl;
         if (ssl)
@@ -1941,7 +1941,7 @@ ngx_http_graphite_param_ssl_cache_usage(ngx_http_request_t *r) {
 
     usage = 0;
 
-#if (NGX_SSL)
+#if (defined(NGX_GRAPHITE_PATCH) && (NGX_SSL))
     ngx_ssl_connection_t *ssl = r->connection->ssl;
     if (ssl) {
 
