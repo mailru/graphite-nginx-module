@@ -1420,6 +1420,7 @@ ngx_http_graphite_template_compile(ngx_conf_t *cf, ngx_array_t *template, const 
                     }
                     ngx_memcpy(arg->data.data, value->data + s, i - s);
                     arg->data.len = i - s;
+                    arg->variable = 0;
                 }
                 else if (state == TEMPLATE_STATE_VAR_START || state == TEMPLATE_STATE_BRACKET_VAR_START) {
                     ngx_uint_t find = 0;
@@ -1428,6 +1429,8 @@ ngx_http_graphite_template_compile(ngx_conf_t *cf, ngx_array_t *template, const 
                         if ((args[a].name.len == i - s) && !ngx_strncmp(args[a].name.data, &value->data[s], i - s)) {
                             find = 1;
                             arg->variable = args[a].variable;
+                            arg->data.data = NULL;
+                            arg->data.len = 0;
                         }
                     }
 
