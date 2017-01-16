@@ -87,7 +87,6 @@ static char *ngx_http_graphite_config_arg_package(ngx_conf_t *cf, ngx_command_t 
 static char *ngx_http_graphite_config_arg_template(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, ngx_str_t *value);
 static char *ngx_http_graphite_config_arg_protocol(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, ngx_str_t *value);
 
-
 static char *ngx_http_graphite_param_arg_name(ngx_conf_t *cf, ngx_command_t *cmd, void *data, ngx_str_t *value);
 static char *ngx_http_graphite_param_arg_aggregate(ngx_conf_t *cf, ngx_command_t *cmd, void *data, ngx_str_t *value);
 static char *ngx_http_graphite_param_arg_interval(ngx_conf_t *cf, ngx_command_t *cmd, void *data, ngx_str_t *value);
@@ -696,10 +695,11 @@ ngx_http_graphite_config(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite config server not set");
         return NGX_CONF_ERROR;
     }
-    if (gmcf->protocol.len == 0){
+    if (gmcf->protocol.len == 0) {
         ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite config protocol is not specified");
         return NGX_CONF_ERROR;
-    } else if (ngx_strcmp(gmcf->protocol.data, "udp") != 0 && ngx_strcmp(gmcf->protocol.data, "tcp") != 0) {
+    }
+    else if (ngx_strcmp(gmcf->protocol.data, "udp") != 0 && ngx_strcmp(gmcf->protocol.data, "tcp") != 0) {
         ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite config invalid protocol");
         return NGX_CONF_ERROR;
     }
@@ -1816,11 +1816,10 @@ ngx_http_graphite_timer_event_handler(ngx_event_t *ev) {
         char *nl = NULL;
 
         int fd;
-         if (ngx_strcmp(gmcf->protocol.data, "tcp") == 0) {
-             fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-         } else {
-             fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-         }
+        if (ngx_strcmp(gmcf->protocol.data, "tcp") == 0)
+            fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        else
+            fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 
         if (fd < 0) {
             ngx_log_error(NGX_LOG_ALERT, ev->log, 0, "graphite can't create socket");
@@ -1831,50 +1830,32 @@ ngx_http_graphite_timer_event_handler(ngx_event_t *ev) {
 
         if (ngx_strcmp(gmcf->protocol.data, "tcp") == 0) {
 
-            int flags;
-
-            /* Set socket to non-blocking */
-            if ((flags = fcntl(fd, F_GETFL, 0)) < 0)
-            {
-                ngx_log_error(NGX_LOG_ALERT, ev->log, 0, "failed to get the current non-blocking flag");
+            if (ngx_nonblocking(fd) == -1) {
+                ngx_log_error(NGX_LOG_ALERT, ev->log, 0, "graphite can't set tcp socket nonblocking");
                 if (!(ngx_quit || ngx_terminate || ngx_exiting))
                     ngx_add_timer(ev, gmcf->frequency);
+                close(fd);
                 return;
             }
 
-            if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0)
-            {
-                ngx_log_error(NGX_LOG_ALERT, ev->log, 0, "failed to set the socket non-blocking");
+            if (connect(fd, (struct sockaddr*)&sin, sizeof(sin)) == -1) {
+                if (ngx_socket_errno != NGX_EINPROGRESS) {
+                   ngx_log_error(NGX_LOG_ALERT, ev->log, ngx_socket_errno, "graphite tcp connect failed");
+                   if (!(ngx_quit || ngx_terminate || ngx_exiting))
+                       ngx_add_timer(ev, gmcf->frequency);
+                   close(fd);
+                   return;
+                }
+            }
+
+            if (ngx_blocking(fd) == -1) {
+                ngx_log_error(NGX_LOG_ALERT, ev->log, 0, "graphite can't set tcp socket blocking");
                 if (!(ngx_quit || ngx_terminate || ngx_exiting))
                     ngx_add_timer(ev, gmcf->frequency);
+                close(fd);
                 return;
             }
-              int res = connect(fd, (struct sockaddr *)&sin, sizeof(sin));
-              if (res < 0) {
-                 if (errno != EINPROGRESS) {
-                    ngx_log_error(NGX_LOG_ALERT, ev->log, 0, "Error connecting %d - %s", errno, strerror(errno));
-                    if (!(ngx_quit || ngx_terminate || ngx_exiting))
-                        ngx_add_timer(ev, gmcf->frequency);
-                    return;
-                 }
-              }
-
-              // Set to blocking mode again...
-              if( (flags = fcntl(fd, F_GETFL, NULL)) < 0) {
-                    ngx_log_error(NGX_LOG_ALERT, ev->log, 0, "failed to get the current non-blocking flag");
-                    if (!(ngx_quit || ngx_terminate || ngx_exiting))
-                        ngx_add_timer(ev, gmcf->frequency);
-                    return;
-              }
-              flags &= (~O_NONBLOCK);
-              if( fcntl(fd, F_SETFL, flags) < 0) {
-                ngx_log_error(NGX_LOG_ALERT, ev->log, 0, "failed to set the socket blocking again");
-                if (!(ngx_quit || ngx_terminate || ngx_exiting))
-                    ngx_add_timer(ev, gmcf->frequency);
-                return;
-              }
         }
-
 
         while (*part) {
             next = part;
@@ -1888,12 +1869,14 @@ ngx_http_graphite_timer_event_handler(ngx_event_t *ev) {
                 if (ngx_strcmp(gmcf->protocol.data, "udp") == 0) {
                     if (sendto(fd, part, nl - part + 1, 0, (struct sockaddr*)&sin, sizeof(sin)) == -1)
                         ngx_log_error(NGX_LOG_ALERT, ev->log, 0, "graphite can't send udp packet");
-                } else if (ngx_strcmp(gmcf->protocol.data, "tcp") == 0) {
-                    if(send(fd, part, nl - part + 1, 0) < 0) {
-                        if(errno == EWOULDBLOCK) {
-                            ngx_log_error(NGX_LOG_ALERT, ev->log, 0, "buffer is full");
-                        } else {
-                              ngx_log_error(NGX_LOG_ALERT, ev->log, 0, "graphite can't send tcp packet");
+                }
+                else if (ngx_strcmp(gmcf->protocol.data, "tcp") == 0) {
+                    if (send(fd, part, nl - part + 1, 0) < 0) {
+                        if (ngx_socket_errno == NGX_EAGAIN) {
+                            ngx_log_error(NGX_LOG_ALERT, ev->log, 0, "graphite tcp buffer is full");
+                        }
+                        else {
+                            ngx_log_error(NGX_LOG_ALERT, ev->log, 0, "graphite can't send tcp packet");
                         }
                     }
                 }
