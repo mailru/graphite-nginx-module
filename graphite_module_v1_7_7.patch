@@ -1,7 +1,8 @@
-diff -u -p -r a/src/event/ngx_event_openssl.c b/src/event/ngx_event_openssl.c
---- a/src/event/ngx_event_openssl.c	2014-10-28 18:04:48.000000000 +0300
-+++ b/src/event/ngx_event_openssl.c	2015-10-26 14:02:58.485592941 +0300
-@@ -1028,6 +1028,16 @@ ngx_ssl_handshake(ngx_connection_t *c)
+Only in b: .git
+diff -U3 -b -r a/src/event/ngx_event_openssl.c b/src/event/ngx_event_openssl.c
+--- a/src/event/ngx_event_openssl.c	2016-10-18 18:03:13.000000000 +0300
++++ b/src/event/ngx_event_openssl.c	2017-01-20 12:18:44.544232635 +0300
+@@ -1122,6 +1122,16 @@
  
      ngx_ssl_clear_error(c->log);
  
@@ -18,9 +19,9 @@ diff -u -p -r a/src/event/ngx_event_openssl.c b/src/event/ngx_event_openssl.c
      n = SSL_do_handshake(c->ssl->connection);
  
      ngx_log_debug1(NGX_LOG_DEBUG_EVENT, c->log, 0, "SSL_do_handshake: %d", n);
-@@ -1091,6 +1101,12 @@ ngx_ssl_handshake(ngx_connection_t *c)
- 
-         c->ssl->handshaked = 1;
+@@ -1201,6 +1211,13 @@
+ #endif
+ #endif
  
 +#if (NGX_GRAPHITE)
 +        c->ssl->handshake_process = 0;
@@ -28,13 +29,14 @@ diff -u -p -r a/src/event/ngx_event_openssl.c b/src/event/ngx_event_openssl.c
 +        c->ssl->handshake_end_sec = tp.tv_sec;
 +        c->ssl->handshake_end_msec = tp.tv_usec / 1000;
 +#endif
-         c->recv = ngx_ssl_recv;
-         c->send = ngx_ssl_write;
-         c->recv_chain = ngx_ssl_recv_chain;
-diff -u -p -r a/src/event/ngx_event_openssl.h b/src/event/ngx_event_openssl.h
---- a/src/event/ngx_event_openssl.h	2014-10-28 18:04:48.000000000 +0300
-+++ b/src/event/ngx_event_openssl.h	2015-10-26 14:02:58.486592902 +0300
-@@ -56,6 +56,14 @@ typedef struct {
++
+         return NGX_OK;
+     }
+ 
+diff -U3 -b -r a/src/event/ngx_event_openssl.h b/src/event/ngx_event_openssl.h
+--- a/src/event/ngx_event_openssl.h	2016-10-18 18:03:13.000000000 +0300
++++ b/src/event/ngx_event_openssl.h	2017-01-20 12:18:24.479892364 +0300
+@@ -74,6 +74,14 @@
      ngx_event_handler_pt        saved_read_handler;
      ngx_event_handler_pt        saved_write_handler;
  
@@ -49,10 +51,10 @@ diff -u -p -r a/src/event/ngx_event_openssl.h b/src/event/ngx_event_openssl.h
      unsigned                    handshaked:1;
      unsigned                    renegotiation:1;
      unsigned                    buffer:1;
-diff -u -p -r a/src/http/modules/ngx_http_gzip_filter_module.c b/src/http/modules/ngx_http_gzip_filter_module.c
---- a/src/http/modules/ngx_http_gzip_filter_module.c	2014-10-28 18:04:48.000000000 +0300
-+++ b/src/http/modules/ngx_http_gzip_filter_module.c	2015-10-26 14:02:58.486592902 +0300
-@@ -365,6 +365,16 @@ ngx_http_gzip_body_filter(ngx_http_reque
+diff -U3 -b -r a/src/http/modules/ngx_http_gzip_filter_module.c b/src/http/modules/ngx_http_gzip_filter_module.c
+--- a/src/http/modules/ngx_http_gzip_filter_module.c	2016-10-18 18:03:14.000000000 +0300
++++ b/src/http/modules/ngx_http_gzip_filter_module.c	2017-01-20 12:18:24.480892331 +0300
+@@ -365,6 +365,16 @@
          }
      }
  
@@ -69,7 +71,7 @@ diff -u -p -r a/src/http/modules/ngx_http_gzip_filter_module.c b/src/http/module
      if (in) {
          if (ngx_chain_add_copy(r->pool, &ctx->in, in) != NGX_OK) {
              goto failed;
-@@ -440,6 +450,11 @@ ngx_http_gzip_body_filter(ngx_http_reque
+@@ -440,6 +450,11 @@
          if (ctx->out == NULL && !flush) {
              ngx_http_gzip_filter_free_copy_buf(r, ctx);
  
@@ -81,7 +83,7 @@ diff -u -p -r a/src/http/modules/ngx_http_gzip_filter_module.c b/src/http/module
              return ctx->busy ? NGX_AGAIN : NGX_OK;
          }
  
-@@ -465,6 +480,12 @@ ngx_http_gzip_body_filter(ngx_http_reque
+@@ -465,6 +480,12 @@
          flush = 0;
  
          if (ctx->done) {
@@ -94,7 +96,7 @@ diff -u -p -r a/src/http/modules/ngx_http_gzip_filter_module.c b/src/http/module
              return rc;
          }
      }
-@@ -483,6 +504,12 @@ failed:
+@@ -483,6 +504,12 @@
  
      ngx_http_gzip_filter_free_copy_buf(r, ctx);
  
@@ -107,10 +109,10 @@ diff -u -p -r a/src/http/modules/ngx_http_gzip_filter_module.c b/src/http/module
      return NGX_ERROR;
  }
  
-diff -u -p -r a/src/http/ngx_http_core_module.c b/src/http/ngx_http_core_module.c
---- a/src/http/ngx_http_core_module.c	2014-10-28 18:04:48.000000000 +0300
-+++ b/src/http/ngx_http_core_module.c	2015-10-26 14:02:58.488592822 +0300
-@@ -1404,7 +1404,19 @@ ngx_http_core_content_phase(ngx_http_req
+diff -U3 -b -r a/src/http/ngx_http_core_module.c b/src/http/ngx_http_core_module.c
+--- a/src/http/ngx_http_core_module.c	2016-10-18 18:03:14.000000000 +0300
++++ b/src/http/ngx_http_core_module.c	2017-01-20 12:18:24.482892266 +0300
+@@ -1367,7 +1367,19 @@
  
      if (r->content_handler) {
          r->write_event_handler = ngx_http_request_empty_handler;
@@ -131,10 +133,10 @@ diff -u -p -r a/src/http/ngx_http_core_module.c b/src/http/ngx_http_core_module.
          return NGX_OK;
      }
  
-diff -u -p -r a/src/http/ngx_http_request.h b/src/http/ngx_http_request.h
---- a/src/http/ngx_http_request.h	2014-10-28 18:04:48.000000000 +0300
-+++ b/src/http/ngx_http_request.h	2015-10-26 14:03:34.458406927 +0300
-@@ -569,6 +569,23 @@ struct ngx_http_request_s {
+diff -U3 -b -r a/src/http/ngx_http_request.h b/src/http/ngx_http_request.h
+--- a/src/http/ngx_http_request.h	2016-10-18 18:03:14.000000000 +0300
++++ b/src/http/ngx_http_request.h	2017-01-20 12:18:24.483892233 +0300
+@@ -578,6 +578,23 @@
  
      unsigned                          http_minor:16;
      unsigned                          http_major:16;
