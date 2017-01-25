@@ -699,7 +699,7 @@ ngx_http_graphite_config(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite config protocol is not specified");
         return NGX_CONF_ERROR;
     }
-    else if (ngx_strcmp(gmcf->protocol.data, "udp") != 0 && ngx_strcmp(gmcf->protocol.data, "tcp") != 0) {
+    else if (ngx_strncmp(gmcf->protocol.data, "udp", 3) != 0 && ngx_strncmp(gmcf->protocol.data, "tcp", 3) != 0) {
         ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite config invalid protocol");
         return NGX_CONF_ERROR;
     }
@@ -1816,7 +1816,7 @@ ngx_http_graphite_timer_event_handler(ngx_event_t *ev) {
         char *nl = NULL;
 
         int fd;
-        if (ngx_strcmp(gmcf->protocol.data, "tcp") == 0)
+        if (ngx_strncmp(gmcf->protocol.data, "tcp", 3) == 0)
             fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
         else
             fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -1828,7 +1828,7 @@ ngx_http_graphite_timer_event_handler(ngx_event_t *ev) {
             return;
         }
 
-        if (ngx_strcmp(gmcf->protocol.data, "tcp") == 0) {
+        if (ngx_strncmp(gmcf->protocol.data, "tcp", 3) == 0) {
 
             if (ngx_nonblocking(fd) == -1) {
                 ngx_log_error(NGX_LOG_ALERT, ev->log, 0, "graphite can't set tcp socket nonblocking");
@@ -1866,11 +1866,11 @@ ngx_http_graphite_timer_event_handler(ngx_event_t *ev) {
                 next++;
             }
             if (nl > part) {
-                if (ngx_strcmp(gmcf->protocol.data, "udp") == 0) {
+                if (ngx_strncmp(gmcf->protocol.data, "udp", 3) == 0) {
                     if (sendto(fd, part, nl - part + 1, 0, (struct sockaddr*)&sin, sizeof(sin)) == -1)
                         ngx_log_error(NGX_LOG_ALERT, ev->log, 0, "graphite can't send udp packet");
                 }
-                else if (ngx_strcmp(gmcf->protocol.data, "tcp") == 0) {
+                else if (ngx_strncmp(gmcf->protocol.data, "tcp", 3) == 0) {
                     if (send(fd, part, nl - part + 1, 0) < 0) {
                         if (ngx_socket_errno == NGX_EAGAIN) {
                             ngx_log_error(NGX_LOG_ALERT, ev->log, 0, "graphite tcp buffer is full");
