@@ -5,10 +5,18 @@ An nginx module for collecting location stats into Graphite.
 
 *This module is not distributed with the Nginx source.* See [the installation instructions](#installation).
 
+Features
+========
+
+* Aggregation of location, server or http metrics
+* Calculation of percentiles
+* Sending data to Grahpite over UDP or TCP in non-blocking way
+* Sending custom metrics from lua
+
 Version
 =======
 
-This document describes graphite-nginx-module [v1.1.0](https://github.com/mailru/graphite-nginx-module/tags) released on 25 November 2014.
+This document describes graphite-nginx-module [v1.3.0](https://github.com/mailru/graphite-nginx-module/tags) released on 31 March 2017.
 
 Synopsis
 ========
@@ -28,7 +36,7 @@ http {
 Description
 ===========
 
-This module use shared memory segment to collect aggregated stats from all workers and send calculated values for last minute to Graphite every 60s (default) over UDP in non-blocking way.
+This module use shared memory segment to collect aggregated stats from all workers and send calculated values for last minute to Graphite every 60s (default) over UDP or TCP in non-blocking way.
 Stats aggegation made on the fly in fixed size buffer allocated on server start and does't affect server perfomance.
 
 This module is in active use on [Mail.Ru Sites](http://mail.ru/) (one of largest web-services in Russia) for about a year and considered stable and well-tested.
@@ -42,7 +50,7 @@ Directives
 
 ### graphite_config
 
-**syntax:** *graphite_config key1=&lt;value1&gt; key2=&lt;value1&gt; ... keyN=&lt;valueN&gt;*
+**syntax:** *graphite_config key1=&lt;value1&gt; key2=&lt;value2&gt; ... keyN=&lt;valueN&gt;*
 
 **context:** *http*
 
@@ -81,11 +89,11 @@ http {
 
 ### graphite_default_data
 
-**syntax:** *graphite_default_data &lt;path prefix&gt; [if=condition]*
+**syntax:** *graphite_default_data &lt;path prefix&gt; [params=&lt;params&gt;] [if=&lt;condition&gt;]*
 
 **context:** *http, server*
 
-Create measurement point in all child locations.
+Create measurement point in all nested locations.
 You can use "$location" variable which represents the name of the current location with all non-alphanumeric characters replaced with "\_." Leading and trailing "\_" are deleted.
 
 Example:
@@ -101,12 +109,13 @@ Example:
    }
 ```
 
-Data for /foo/ will be sent to nginx.foo, data for /bar/ - to nginx.bar.
-The if parameter (1.1.0) enables conditional logging. A request will not be logged if the condition evaluates to "0" or an empty string.
+Data for `/foo/` will be sent to `nginx.foo`, data for `/bar/` - to `nginx.bar`.
+The `<params>` parameter (1.3.0) specifies list of params to be collected for all nested locations. To add all default params, use \*.
+The `<if>` parameter (1.1.0) enables conditional logging. A request will not be logged if the condition evaluates to "0" or an empty string.
 
 ### graphite_data
 
-**syntax:** *graphite_data &lt;path prefix&gt; [if=&lt;condition&gt;]*
+**syntax:** *graphite_data &lt;path prefix&gt; [params=&lt;params&gt;] [if=&lt;condition&gt;]*
 
 **context:** *http, server, location, if*
 
@@ -121,7 +130,8 @@ Example:
     }
 ```
 
-The if parameter (1.1.0) enables conditional logging. A request will not be logged if the condition evaluates to "0" or an empty string.
+The `<params>` parameter (1.3.0) specifies list of params to be collected for this location. To add all default params, use \*.
+The `<if>` parameter (1.1.0) enables conditional logging. A request will not be logged if the condition evaluates to "0" or an empty string.
 
 Example:
 
@@ -136,6 +146,8 @@ Example:
         graphite_data nginx.all.bar;
         graphite_data nginx.http.bar if=$is_http;
         graphite_data nginx.https.bar if=$is_https;
+        graphite_data nginx.arg params=rps|request_time;
+        graphite_data nginx.ext params=*|rps|request_time;
     }
 ```
 
@@ -209,29 +221,33 @@ location /foo/ {
 }
 ```
 
-Graphs
+Params
 ======
 
-Param                 | Units | Func | Description
---------------------- | ----- | ---- | ------------------------------------------
-request_time          | ms    | avg  | total time spent on serving request
-bytes_sent            | bytes | avg  | http response length
-body_bytes_sent       | bytes | avg  | http response body length
-request_length        | bytes | avg  | http request length
-ssl_handshake_time    | ms    | avg  | time spent on ssl handsake
-ssl_cache_usage       | %     | last | how much SSL cache used
-content_time          | ms    | avg  | time spent generating content inside nginx
-gzip_time             | ms    | avg  | time spent gzipping content ob-the-fly
-upstream_time         | ms    | avg  | time spent tailking with upstream
-upstream_connect_time | ms    | avg  | time spent on upstream connect (nginx >= 1.9.1)
-upstream_header_time  | ms    | avg  | time spent on upstream header (nginx >= 1.9.1)
-rps                   | rps   | sum  | total requests number per aggregation interval
-keepalive_rps         | rps   | sum  | requests number sent over previously opened keepalive connection
-response_2xx_rps      | rps   | sum  | total responses number with 2xx code
-response_3xx_rps      | rps   | sum  | total responses number with 3xx code
-response_4xx_rps      | rps   | sum  | total responses number with 4xx code
-response_5xx_rps      | rps   | sum  | total responses number with 5xx code
+Param                   | Units | Func | Description
+----------------------- | ----- | ---- | ------------------------------------------
+request\_time           | ms    | avg  | total time spent on serving request
+bytes\_sent             | bytes | avg  | http response length
+body\_bytes\_sent       | bytes | avg  | http response body length
+request\_length         | bytes | avg  | http request length
+ssl\_handshake\_time    | ms    | avg  | time spent on ssl handsake
+ssl\_cache\_usage       | %     | last | how much SSL cache used
+content\_time           | ms    | avg  | time spent generating content inside nginx
+gzip\_time              | ms    | avg  | time spent gzipping content ob-the-fly
+upstream\_time          | ms    | avg  | time spent tailking with upstream
+upstream\_connect\_time | ms    | avg  | time spent on upstream connect (nginx >= 1.9.1)
+upstream\_header\_time  | ms    | avg  | time spent on upstream header (nginx >= 1.9.1)
+rps                     | rps   | sum  | total requests number per aggregation interval
+keepalive\_rps          | rps   | sum  | requests number sent over previously opened keepalive connection
+response\_2xx\_rps      | rps   | sum  | total responses number with 2xx code
+response\_3xx\_rps      | rps   | sum  | total responses number with 3xx code
+response\_4xx\_rps      | rps   | sum  | total responses number with 4xx code
+response\_5xx\_rps      | rps   | sum  | total responses number with 5xx code
 
+Percentiles
+===========
+
+To calculate percentile value for any parameter, set percentile level via `/`. E.g. `request_time/50|request_time|90|request_time/99`.
 
 Installation
 ============
@@ -300,7 +316,7 @@ Instructions on installing lua-nginx-module can be found in [documentation on lu
 License
 =======
 
-Copyright (c) 2013-2016, Mail.Ru Ltd.
+Copyright (c) 2013-2017, Mail.Ru Ltd.
 
 This module is licensed under the terms of the BSD license.
 
@@ -322,4 +338,3 @@ PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
 LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
 NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
