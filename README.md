@@ -247,7 +247,7 @@ response\_5xx\_rps      | rps   | sum  | total responses number with 5xx code
 Percentiles
 ===========
 
-To calculate percentile value for any parameter, set percentile level via `/`. E.g. `request_time/50|request_time|90|request_time/99`.
+To calculate percentile value for any parameter, set percentile level via `/`. E.g. `request_time/50|request_time/90|request_time/99`.
 
 Installation
 ============
