@@ -1,5 +1,5 @@
 diff --git a/config b/config
-index 3c2548b..6f137cf 100644
+index c91a07e..9f89c8e 100644
 --- a/config
 +++ b/config
 @@ -357,6 +357,7 @@ HTTP_LUA_SRCS=" \
@@ -20,10 +20,10 @@ index 3c2548b..6f137cf 100644
  CFLAGS="$CFLAGS -DNDK_SET_VAR"
 diff --git a/src/ngx_http_lua_graphite.c b/src/ngx_http_lua_graphite.c
 new file mode 100644
-index 0000000..e959199
+index 0000000..af48a53
 --- /dev/null
 +++ b/src/ngx_http_lua_graphite.c
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,72 @@
 +#ifndef DDEBUG
 +#define DDEBUG 0
 +#endif
@@ -72,6 +72,11 @@ index 0000000..e959199
 +static int
 +ngx_http_lua_graphite_custom(lua_State *L) {
 +
++    size_t n = lua_gettop(L);
++    if (n != 2) {
++        return luaL_error(L, "ngx.graphite expecting 2 arguments got %d", n);
++    }
++
 +    ngx_http_request_t *r;
 +    r = ngx_http_lua_get_req(L);
 +
@@ -79,14 +84,12 @@ index 0000000..e959199
 +        return luaL_error(L, "no request object found");
 +    }
 +
-+    double value = lua_tonumber(L, -1);
-+    lua_pop(L, 1);
-+
 +    ngx_str_t name;
-+    name.data = (u_char*)lua_tolstring(L, -1, &name.len);
++    name.data = (u_char*)lua_tolstring(L, 1, &name.len);
 +    if (name.data == NULL)
 +        return 0;
-+    lua_pop(L, 1);
++
++    double value = lua_tonumber(L, 2);
 +
 +    if (custom_pt)
 +        custom_pt(r, &name, value);
@@ -111,7 +114,7 @@ index 0000000..cf76efa
 +#endif /* NGX_HTTP_LUA_GRAPHITE_H */
 +
 diff --git a/src/ngx_http_lua_util.c b/src/ngx_http_lua_util.c
-index 69eccae..bb3e6f7 100644
+index 1bd1388..0bebff3 100644
 --- a/src/ngx_http_lua_util.c
 +++ b/src/ngx_http_lua_util.c
 @@ -51,6 +51,7 @@
