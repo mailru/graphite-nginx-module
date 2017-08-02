@@ -69,6 +69,7 @@ static ngx_int_t ngx_http_graphite_process_init(ngx_cycle_t *cycle);
 static void *ngx_http_graphite_create_main_conf(ngx_conf_t *cf);
 static void *ngx_http_graphite_create_srv_conf(ngx_conf_t *cf);
 static void *ngx_http_graphite_create_loc_conf(ngx_conf_t *cf);
+static char *ngx_http_graphite_merge_loc_conf(ngx_conf_t* cf, void* parent, void* child);
 
 static ngx_str_t *ngx_http_graphite_location(ngx_pool_t *pool, ngx_str_t *uri);
 
@@ -193,7 +194,7 @@ static ngx_http_module_t ngx_http_graphite_module_ctx = {
     NULL,                                  /* merge server configuration */
 
     ngx_http_graphite_create_loc_conf,     /* create location configuration */
-    NULL                                   /* merge location configuration */
+    ngx_http_graphite_merge_loc_conf,      /* merge location configuration */
 };
 
 ngx_module_t ngx_http_graphite_module = {
@@ -612,6 +613,26 @@ ngx_http_graphite_create_loc_conf(ngx_conf_t *cf) {
     }
 
     return glcf;
+}
+
+static char *
+ngx_http_graphite_merge_loc_conf(ngx_conf_t* cf, void* parent, void* child) {
+    ngx_http_graphite_loc_conf_t *prev = parent;
+    ngx_http_graphite_loc_conf_t *conf = child;
+
+    size_t i;
+    for (i = 0; i < prev->datas->nelts; i++) {
+        ngx_http_graphite_data_t *prev_data = &((ngx_http_graphite_data_t*)prev->datas->elts)[i];
+        ngx_http_graphite_data_t *data = ngx_array_push(conf->datas);
+        if (!data) {
+            ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't alloc memory");
+            return NGX_CONF_ERROR;
+        }
+
+        *data = *prev_data;
+    }
+
+    return NGX_CONF_OK;
 }
 
 static ngx_str_t *
