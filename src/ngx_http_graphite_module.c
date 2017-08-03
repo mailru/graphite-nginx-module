@@ -2200,14 +2200,6 @@ ngx_http_graphite_timer_handler(ngx_event_t *ev) {
                    return;
                 }
             }
-
-            if (ngx_blocking(fd) == -1) {
-                ngx_log_error(NGX_LOG_ALERT, ev->log, 0, "graphite can't set tcp socket blocking");
-                if (!(ngx_quit || ngx_terminate || ngx_exiting))
-                    ngx_add_timer(ev, gmcf->frequency);
-                close(fd);
-                return;
-            }
         }
 
         while (*part) {
