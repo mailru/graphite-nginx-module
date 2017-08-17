@@ -157,11 +157,13 @@ Example:
 
 **context:** *location*
 
-Param     | Required | Description
---------- | -------- | -----------
-name      | Yes      | path prefix for all graphs
-interval  | Yes      | aggregation interval, time intrval value format (`m` - minutes)
-aggregate | Yes      | aggregation function on values
+Param      | Required | Description
+---------- | -------- | -----------
+name       | Yes      | path prefix for all graphs
+interval   | Yes\*    | aggregation interval, time intrval value format (`m` - minutes)
+aggregate  | Yes\*    | aggregation function on values
+percentile | Yes\*    | percentile level
+\* - you must set either interval with aggregate or percentile
 
 #### aggregate functions
 func   | Description
