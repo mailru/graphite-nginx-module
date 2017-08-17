@@ -18,6 +18,7 @@ typedef struct {
     int port;
     ngx_uint_t frequency;
 
+    ngx_array_t *sources;
     ngx_array_t *params;
     ngx_array_t *intervals;
     ngx_array_t *splits;
@@ -108,26 +109,6 @@ static char *ngx_http_graphite_parse_params(ngx_conf_t *cf, ngx_str_t *value, ng
 static char *ngx_http_graphite_parse_string(ngx_conf_t *cf, ngx_str_t *value, ngx_str_t *result);
 static char *ngx_http_graphite_parse_size(ngx_str_t *value, size_t *result);
 static char *ngx_http_graphite_parse_time(ngx_str_t *value, ngx_uint_t *result);
-
-static double ngx_http_graphite_source_request_time(ngx_http_request_t *r);
-static double ngx_http_graphite_source_bytes_sent(ngx_http_request_t *r);
-static double ngx_http_graphite_source_body_bytes_sent(ngx_http_request_t *r);
-static double ngx_http_graphite_source_request_length(ngx_http_request_t *r);
-static double ngx_http_graphite_source_ssl_handshake_time(ngx_http_request_t *r);
-static double ngx_http_graphite_source_ssl_cache_usage(ngx_http_request_t *r);
-static double ngx_http_graphite_source_content_time(ngx_http_request_t *r);
-static double ngx_http_graphite_source_gzip_time(ngx_http_request_t *r);
-static double ngx_http_graphite_source_upstream_time(ngx_http_request_t *r);
-#if nginx_version >= 1009001
-static double ngx_http_graphite_source_upstream_connect_time(ngx_http_request_t *r);
-static double ngx_http_graphite_source_upstream_header_time(ngx_http_request_t *r);
-#endif
-static double ngx_http_graphite_source_rps(ngx_http_request_t *r);
-static double ngx_http_graphite_source_keepalive_rps(ngx_http_request_t *r);
-static double ngx_http_graphite_source_response_2xx_rps(ngx_http_request_t *r);
-static double ngx_http_graphite_source_response_3xx_rps(ngx_http_request_t *r);
-static double ngx_http_graphite_source_response_4xx_rps(ngx_http_request_t *r);
-static double ngx_http_graphite_source_response_5xx_rps(ngx_http_request_t *r);
 
 static ngx_command_t ngx_http_graphite_commands[] = {
 
@@ -313,28 +294,42 @@ static const ngx_http_graphite_aggregate_t ngx_http_graphite_aggregates[AGGREGAT
     { ngx_string("sum"), ngx_http_graphite_aggregate_sum },
 };
 
-typedef double (*ngx_http_graphite_source_handler_pt)(ngx_http_request_t*);
+struct ngx_http_graphite_source_s;
+typedef double (*ngx_http_graphite_source_handler_pt)(const struct ngx_http_graphite_source_s *source, ngx_http_request_t*);
 
 typedef struct ngx_http_graphite_source_s {
     ngx_str_t name;
+    ngx_flag_t re;
     ngx_http_graphite_source_handler_pt get;
     ngx_http_graphite_aggregate_pt aggregate;
     ngx_uint_t type;
 } ngx_http_graphite_source_t;
 
-typedef struct ngx_http_graphite_param_s {
-    ngx_str_t name;
-    ngx_uint_t source;
-    ngx_http_graphite_aggregate_pt aggregate;
-    ngx_uint_t type;
-    ngx_http_graphite_interval_t interval;
-    ngx_uint_t percentile;
-} ngx_http_graphite_param_t;
+static double ngx_http_graphite_source_request_time(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
+static double ngx_http_graphite_source_bytes_sent(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
+static double ngx_http_graphite_source_body_bytes_sent(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
+static double ngx_http_graphite_source_request_length(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
+static double ngx_http_graphite_source_ssl_handshake_time(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
+static double ngx_http_graphite_source_ssl_cache_usage(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
+static double ngx_http_graphite_source_content_time(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
+static double ngx_http_graphite_source_gzip_time(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
+static double ngx_http_graphite_source_upstream_time(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
+#if nginx_version >= 1009001
+static double ngx_http_graphite_source_upstream_connect_time(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
+static double ngx_http_graphite_source_upstream_header_time(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
+#endif
+static double ngx_http_graphite_source_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
+static double ngx_http_graphite_source_keepalive_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
+static double ngx_http_graphite_source_response_2xx_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
+static double ngx_http_graphite_source_response_3xx_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
+static double ngx_http_graphite_source_response_4xx_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
+static double ngx_http_graphite_source_response_5xx_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
+static double ngx_http_graphite_source_response_xxx_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
 
 #if nginx_version >= 1009001
-#define SOURCE_COUNT 17
+#define SOURCE_COUNT 18
 #else
-#define SOURCE_COUNT 15
+#define SOURCE_COUNT 16
 #endif
 
 static const ngx_http_graphite_source_t ngx_http_graphite_sources[SOURCE_COUNT] = {
@@ -357,7 +352,17 @@ static const ngx_http_graphite_source_t ngx_http_graphite_sources[SOURCE_COUNT] 
     { .name = ngx_string("response_3xx_rps"), .get = ngx_http_graphite_source_response_3xx_rps, .aggregate = ngx_http_graphite_aggregate_persec },
     { .name = ngx_string("response_4xx_rps"), .get = ngx_http_graphite_source_response_4xx_rps, .aggregate = ngx_http_graphite_aggregate_persec },
     { .name = ngx_string("response_5xx_rps"), .get = ngx_http_graphite_source_response_5xx_rps, .aggregate = ngx_http_graphite_aggregate_persec },
+    { .name = ngx_string("response_\\d\\d\\d_rps"), .re = 1, .get = ngx_http_graphite_source_response_xxx_rps, .aggregate = ngx_http_graphite_aggregate_persec },
 };
+
+typedef struct ngx_http_graphite_param_s {
+    ngx_str_t name;
+    ngx_uint_t source;
+    ngx_http_graphite_aggregate_pt aggregate;
+    ngx_uint_t type;
+    ngx_http_graphite_interval_t interval;
+    ngx_uint_t percentile;
+} ngx_http_graphite_param_t;
 
 typedef struct ngx_http_graphite_metric_s {
     ngx_uint_t split;
@@ -428,7 +433,7 @@ static void ngx_http_graphite_statistic_init(ngx_http_graphite_stt_t *stt, ngx_u
 ngx_int_t ngx_http_graphite_handler(ngx_http_request_t *r);
 static void ngx_http_graphite_timer_handler(ngx_event_t *ev);
 void ngx_http_graphite_del_old_records(ngx_http_graphite_main_conf_t *gmcf, time_t ts);
-static double *ngx_http_graphite_get_sources_values(ngx_http_request_t *r);
+static double *ngx_http_graphite_get_sources_values(ngx_http_graphite_main_conf_t *gmcf, ngx_http_request_t *r);
 
 static ngx_int_t
 ngx_http_graphite_add_variables(ngx_conf_t *cf)
@@ -524,6 +529,7 @@ ngx_http_graphite_create_main_conf(ngx_conf_t *cf) {
     if (gmcf == NULL)
         return NULL;
 
+    gmcf->sources = ngx_array_create(cf->pool, 1, sizeof(ngx_http_graphite_source_t));
     gmcf->params = ngx_array_create(cf->pool, 1, sizeof(ngx_http_graphite_param_t));
     gmcf->splits = ngx_array_create(cf->pool, 1, sizeof(ngx_str_t));
     gmcf->intervals = ngx_array_create(cf->pool, 1, sizeof(ngx_http_graphite_interval_t));
@@ -537,7 +543,7 @@ ngx_http_graphite_create_main_conf(ngx_conf_t *cf) {
     gmcf->datas = ngx_array_create(cf->pool, 1, sizeof(ngx_http_graphite_data_t));
     gmcf->custom_datas = ngx_array_create(cf->pool, 1, sizeof(ngx_http_graphite_data_t));
 
-    if (gmcf->params == NULL || gmcf->splits == NULL || gmcf->intervals == NULL || gmcf->default_params == NULL || gmcf->custom_params == NULL || gmcf->metrics == NULL || gmcf->statistics == NULL || gmcf->template == NULL || gmcf->default_data_template == NULL || gmcf->default_data_params == NULL || gmcf->datas == NULL || gmcf->custom_datas == NULL) {
+    if (gmcf->sources == NULL || gmcf->params == NULL || gmcf->splits == NULL || gmcf->intervals == NULL || gmcf->default_params == NULL || gmcf->custom_params == NULL || gmcf->metrics == NULL || gmcf->statistics == NULL || gmcf->template == NULL || gmcf->default_data_template == NULL || gmcf->default_data_params == NULL || gmcf->datas == NULL || gmcf->custom_datas == NULL) {
         ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't alloc memory");
         return NULL;
     }
@@ -749,21 +755,78 @@ ngx_http_graphite_parse_args(ngx_conf_t *cf, ngx_command_t *cmd, void *conf, con
     return NGX_CONF_OK;
 }
 
+static ngx_uint_t
+ngx_http_graphite_get_source(ngx_conf_t *cf, const ngx_str_t *name) {
+
+    ngx_http_graphite_main_conf_t *gmcf;
+
+    gmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_graphite_module);
+
+    ngx_uint_t c;
+    for (c = 0; c < gmcf->sources->nelts; c++) {
+        ngx_http_graphite_source_t *source = &((ngx_http_graphite_source_t*)gmcf->sources->elts)[c];
+        if ((source->name.len == name->len) && !ngx_strncmp(source->name.data, name->data, name->len))
+            return c;
+    }
+
+    for (c = 0; c < SOURCE_COUNT; c++) {
+        const ngx_http_graphite_source_t *source = &ngx_http_graphite_sources[c];
+        if (!source->re) {
+            if ((source->name.len == name->len) && !ngx_strncmp(source->name.data, name->data, name->len)) {
+                break;
+            }
+        }
+        else {
+            ngx_regex_compile_t rc;
+            ngx_memzero(&rc, sizeof(rc));
+            rc.pool = cf->pool;
+            rc.pattern = source->name;
+            if (ngx_regex_compile(&rc) != NGX_OK) {
+                ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't compile regex");
+                return NGX_ERROR;
+            }
+
+            if (ngx_regex_exec(rc.regex, name, NULL, 0) >= 0)
+                break;
+        }
+    }
+
+    if (c == SOURCE_COUNT) {
+        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite unknow param %*s", name->len, name->data);
+        return NGX_ERROR;
+    }
+
+    ngx_http_graphite_source_t *new_source = ngx_array_push(gmcf->sources);
+    if (!new_source) {
+        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't alloc memory");
+        return NGX_ERROR;
+    }
+    *new_source = ngx_http_graphite_sources[c];
+    new_source->name = *name;
+
+    return gmcf->sources->nelts - 1;
+}
+
 static ngx_http_graphite_param_t
-ngx_http_graphite_source_param(ngx_uint_t source) {
+ngx_http_graphite_create_param(ngx_conf_t *cf, ngx_uint_t c) {
+
+    ngx_http_graphite_main_conf_t *gmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_graphite_module);
+
+    ngx_http_graphite_source_t *source = &((ngx_http_graphite_source_t*)gmcf->sources->elts)[c];
 
     ngx_http_graphite_param_t param;
     ngx_memzero(&param, sizeof(param));
-    param.name = ngx_http_graphite_sources[source].name;
-    param.source = source;
-    param.aggregate = ngx_http_graphite_sources[source].aggregate;
-    param.type = ngx_http_graphite_sources[source].type;
+
+    param.name = source->name;
+    param.source = c;
+    param.aggregate = source->aggregate;
+    param.type = source->type;
 
     return param;
 }
 
 static ngx_int_t
-ngx_http_graphite_new_param(ngx_conf_t *cf, ngx_http_graphite_param_t *param) {
+ngx_http_graphite_add_param(ngx_conf_t *cf, ngx_http_graphite_param_t *param) {
 
     ngx_http_graphite_main_conf_t *gmcf;
 
@@ -828,7 +891,7 @@ ngx_http_graphite_push_param(ngx_conf_t *cf, ngx_array_t *params, ngx_uint_t par
 }
 
 static char *
-ngx_http_graphite_add_param(ngx_conf_t *cf, ngx_uint_t split, ngx_uint_t param, ngx_array_t *metrics, ngx_array_t *statistics) {
+ngx_http_graphite_register_param(ngx_conf_t *cf, ngx_uint_t split, ngx_uint_t param, ngx_array_t *metrics, ngx_array_t *statistics) {
 
     ngx_http_graphite_main_conf_t *gmcf;
 
@@ -905,7 +968,7 @@ ngx_http_graphite_new_data(ngx_conf_t *cf, ngx_array_t *datas) {
         ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't alloc memory");
         return NULL;
     }
-	data->filter = NULL;
+    data->filter = NULL;
 
     return data;
 }
@@ -1189,7 +1252,7 @@ ngx_http_graphite_param(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
         return NGX_CONF_ERROR;
     }
 
-    ngx_uint_t p = ngx_http_graphite_new_param(cf, &param);
+    ngx_uint_t p = ngx_http_graphite_add_param(cf, &param);
     if ((ngx_int_t)p == NGX_ERROR)
         return NGX_CONF_ERROR;
 
@@ -1216,7 +1279,7 @@ ngx_http_graphite_param(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
             return NGX_CONF_ERROR;
     }
 
-    if (ngx_http_graphite_add_param(cf, SPLIT_CUSTOM, p, data->metrics, data->statistics) != NGX_CONF_OK)
+    if (ngx_http_graphite_register_param(cf, SPLIT_CUSTOM, p, data->metrics, data->statistics) != NGX_CONF_OK)
         return NGX_CONF_ERROR;
 
     return NGX_CONF_OK;
@@ -1557,7 +1620,7 @@ ngx_http_graphite_add_data(ngx_conf_t *cf, ngx_array_t *datas, ngx_str_t *split,
             if ((cf->cmd_type & NGX_HTTP_LOC_CONF) && !(param->type & NGX_HTTP_LOC_CONF))
                 continue;
         }
-        ngx_http_graphite_add_param(cf, s, p, data->metrics, data->statistics);
+        ngx_http_graphite_register_param(cf, s, p, data->metrics, data->statistics);
     }
 
     data->filter = filter;
@@ -1588,9 +1651,15 @@ ngx_http_graphite_parse_params(ngx_conf_t *cf, ngx_str_t *value, ngx_array_t *pa
                     ngx_uint_t c;
                     for (c = 0; c < SOURCE_COUNT; c++) {
 
-                        ngx_http_graphite_param_t param = ngx_http_graphite_source_param(c);
+                        const ngx_http_graphite_source_t *source = &ngx_http_graphite_sources[c];
+                        if (source->re)
+                            continue;
+                        ngx_uint_t c = ngx_http_graphite_get_source(cf, &source->name);
+                        if ((ngx_int_t)c == NGX_ERROR)
+                            return NGX_CONF_ERROR;
+                        ngx_http_graphite_param_t param = ngx_http_graphite_create_param(cf, c);
 
-                        ngx_uint_t p = ngx_http_graphite_new_param(cf, &param);
+                        ngx_uint_t p = ngx_http_graphite_add_param(cf, &param);
                         if ((ngx_int_t)p == NGX_ERROR)
                             return NGX_CONF_ERROR;
 
@@ -1608,40 +1677,34 @@ ngx_http_graphite_parse_params(ngx_conf_t *cf, ngx_str_t *value, ngx_array_t *pa
                 }
             }
             else {
-                ngx_uint_t find = 0;
-                ngx_uint_t c;
-                for (c = 0; c < SOURCE_COUNT; c++) {
-                    if (q == NGX_CONF_UNSET_UINT)
-                        q = i;
-                    if ((ngx_http_graphite_sources[c].name.len == q - s) && !ngx_strncmp(ngx_http_graphite_sources[c].name.data, &value->data[s], q - s)) {
-                        find = 1;
+                if (q == NGX_CONF_UNSET_UINT)
+                    q = i;
 
-                        ngx_http_graphite_param_t param = ngx_http_graphite_source_param(c);
-
-                        if (q != i) {
-                            ngx_int_t percentile = ngx_atoi(&value->data[q + 1], i - q - 1);
-                            if (percentile == NGX_ERROR || percentile <= 0 || percentile > 100) {
-                                ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite bad param %*s", i - s, &value->data[s]);
-                                return NGX_CONF_ERROR;
-                            }
-
-                            param.percentile = percentile;
-                        }
-
-                        ngx_uint_t p = ngx_http_graphite_new_param(cf, &param);
-                        if ((ngx_int_t)p == NGX_ERROR)
-                            return NGX_CONF_ERROR;
-
-                        if (ngx_http_graphite_push_param(cf, params, p) != NGX_CONF_OK)
-                            return NGX_CONF_ERROR;
-                        break;
-                    }
-                }
-
-                if (!find) {
-                    ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite unknow param %*s", i - s, &value->data[s]);
+                ngx_str_t name;
+                name.data = &value->data[s];
+                name.len = q - s;
+                ngx_uint_t c = ngx_http_graphite_get_source(cf, &name);
+                if ((ngx_int_t)c == NGX_ERROR)
                     return NGX_CONF_ERROR;
+
+                ngx_http_graphite_param_t param = ngx_http_graphite_create_param(cf, c);
+
+                if (q != i) {
+                    ngx_int_t percentile = ngx_atoi(&value->data[q + 1], i - q - 1);
+                    if (percentile == NGX_ERROR || percentile <= 0 || percentile > 100) {
+                        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite bad param %*s", i - s, &value->data[s]);
+                        return NGX_CONF_ERROR;
+                    }
+
+                    param.percentile = percentile;
                 }
+
+                ngx_uint_t p = ngx_http_graphite_add_param(cf, &param);
+                if ((ngx_int_t)p == NGX_ERROR)
+                    return NGX_CONF_ERROR;
+
+                if (ngx_http_graphite_push_param(cf, params, p) != NGX_CONF_OK)
+                    return NGX_CONF_ERROR;
             }
 
             s = i + 1;
@@ -2117,7 +2180,7 @@ ngx_http_graphite_handler(ngx_http_request_t *r) {
 
     time_t ts = ngx_time();
 
-    double *values = ngx_http_graphite_get_sources_values(r);
+    double *values = ngx_http_graphite_get_sources_values(gmcf, r);
     if (values == NULL) {
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "graphite can't get values");
         return NGX_OK;
@@ -2425,25 +2488,25 @@ ngx_http_graphite_del_old_records(ngx_http_graphite_main_conf_t *gmcf, time_t ts
 }
 
 static double *
-ngx_http_graphite_get_sources_values(ngx_http_request_t *r) {
+ngx_http_graphite_get_sources_values(ngx_http_graphite_main_conf_t *gmcf, ngx_http_request_t *r) {
 
-    double *values = ngx_palloc(r->pool, sizeof(double) * SOURCE_COUNT);
+    double *values = ngx_palloc(r->pool, sizeof(double) * gmcf->sources->nelts);
     if (!values)
         return NULL;
 
-    ngx_uint_t s;
-    for (s = 0; s < SOURCE_COUNT; s++) {
+    ngx_uint_t c;
+    for (c = 0; c < gmcf->sources->nelts; c++) {
 
-        const ngx_http_graphite_source_t *source = &ngx_http_graphite_sources[s];
+        const ngx_http_graphite_source_t *source = &((ngx_http_graphite_source_t*)gmcf->sources->elts)[c];
         if (source->get)
-            values[s] = source->get(r);
+            values[c] = source->get(source, r);
     }
 
     return values;
 }
 
 static double
-ngx_http_graphite_source_request_time(ngx_http_request_t *r) {
+ngx_http_graphite_source_request_time(const ngx_http_graphite_source_t *source, ngx_http_request_t *r) {
 
     ngx_time_t      *tp;
     ngx_msec_int_t   ms;
@@ -2455,13 +2518,13 @@ ngx_http_graphite_source_request_time(ngx_http_request_t *r) {
 }
 
 static double
-ngx_http_graphite_source_bytes_sent(ngx_http_request_t *r) {
+ngx_http_graphite_source_bytes_sent(const ngx_http_graphite_source_t *source, ngx_http_request_t *r) {
 
     return (double)r->connection->sent;
 }
 
 static double
-ngx_http_graphite_source_body_bytes_sent(ngx_http_request_t *r) {
+ngx_http_graphite_source_body_bytes_sent(const ngx_http_graphite_source_t *source, ngx_http_request_t *r) {
 
     off_t  length;
 
@@ -2472,13 +2535,13 @@ ngx_http_graphite_source_body_bytes_sent(ngx_http_request_t *r) {
 }
 
 static double
-ngx_http_graphite_source_request_length(ngx_http_request_t *r) {
+ngx_http_graphite_source_request_length(const ngx_http_graphite_source_t *source, ngx_http_request_t *r) {
 
     return (double)r->request_length;
 }
 
 static double
-ngx_http_graphite_source_ssl_handshake_time(ngx_http_request_t *r) {
+ngx_http_graphite_source_ssl_handshake_time(const ngx_http_graphite_source_t *source, ngx_http_request_t *r) {
 
     ngx_msec_int_t ms;
 
@@ -2496,7 +2559,7 @@ ngx_http_graphite_source_ssl_handshake_time(ngx_http_request_t *r) {
 }
 
 static double
-ngx_http_graphite_source_ssl_cache_usage(ngx_http_request_t *r) {
+ngx_http_graphite_source_ssl_cache_usage(const ngx_http_graphite_source_t *source, ngx_http_request_t *r) {
 
     double usage;
 
@@ -2532,7 +2595,7 @@ ngx_http_graphite_source_ssl_cache_usage(ngx_http_request_t *r) {
 }
 
 static double
-ngx_http_graphite_source_content_time(ngx_http_request_t *r) {
+ngx_http_graphite_source_content_time(const ngx_http_graphite_source_t *source, ngx_http_request_t *r) {
 
     ngx_msec_int_t ms;
 
@@ -2548,7 +2611,7 @@ ngx_http_graphite_source_content_time(ngx_http_request_t *r) {
 }
 
 static double
-ngx_http_graphite_source_gzip_time(ngx_http_request_t *r) {
+ngx_http_graphite_source_gzip_time(const ngx_http_graphite_source_t *source, ngx_http_request_t *r) {
 
     ngx_msec_int_t ms;
 
@@ -2563,7 +2626,7 @@ ngx_http_graphite_source_gzip_time(ngx_http_request_t *r) {
 }
 
 static double
-ngx_http_graphite_source_upstream_time(ngx_http_request_t *r) {
+ngx_http_graphite_source_upstream_time(const ngx_http_graphite_source_t *source, ngx_http_request_t *r) {
 
     ngx_uint_t i;
     ngx_msec_int_t ms;
@@ -2591,7 +2654,7 @@ ngx_http_graphite_source_upstream_time(ngx_http_request_t *r) {
 
 #if nginx_version >= 1009001
 static double
-ngx_http_graphite_source_upstream_connect_time(ngx_http_request_t *r) {
+ngx_http_graphite_source_upstream_connect_time(const ngx_http_graphite_source_t *source, ngx_http_request_t *r) {
 
     ngx_uint_t i;
     ngx_msec_int_t ms;
@@ -2614,7 +2677,7 @@ ngx_http_graphite_source_upstream_connect_time(ngx_http_request_t *r) {
 }
 
 static double
-ngx_http_graphite_source_upstream_header_time(ngx_http_request_t *r) {
+ngx_http_graphite_source_upstream_header_time(const ngx_http_graphite_source_t *source, ngx_http_request_t *r) {
 
     ngx_uint_t i;
     ngx_msec_int_t ms;
@@ -2638,13 +2701,13 @@ ngx_http_graphite_source_upstream_header_time(ngx_http_request_t *r) {
 #endif
 
 static double
-ngx_http_graphite_source_rps(ngx_http_request_t *r) {
+ngx_http_graphite_source_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r) {
 
     return 1;
 }
 
 static double
-ngx_http_graphite_source_keepalive_rps(ngx_http_request_t *r) {
+ngx_http_graphite_source_keepalive_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r) {
 
     if (r->connection->requests == 1)
         return 0;
@@ -2653,7 +2716,7 @@ ngx_http_graphite_source_keepalive_rps(ngx_http_request_t *r) {
 }
 
 static double
-ngx_http_graphite_source_response_2xx_rps(ngx_http_request_t *r) {
+ngx_http_graphite_source_response_2xx_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r) {
 
     if (r->headers_out.status / 100 == 2)
         return 1;
@@ -2662,7 +2725,7 @@ ngx_http_graphite_source_response_2xx_rps(ngx_http_request_t *r) {
 }
 
 static double
-ngx_http_graphite_source_response_3xx_rps(ngx_http_request_t *r) {
+ngx_http_graphite_source_response_3xx_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r) {
 
     if (r->headers_out.status / 100 == 3)
         return 1;
@@ -2671,7 +2734,7 @@ ngx_http_graphite_source_response_3xx_rps(ngx_http_request_t *r) {
 }
 
 static double
-ngx_http_graphite_source_response_4xx_rps(ngx_http_request_t *r) {
+ngx_http_graphite_source_response_4xx_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r) {
 
     if (r->headers_out.status / 100 == 4)
         return 1;
@@ -2680,9 +2743,19 @@ ngx_http_graphite_source_response_4xx_rps(ngx_http_request_t *r) {
 }
 
 static double
-ngx_http_graphite_source_response_5xx_rps(ngx_http_request_t *r) {
+ngx_http_graphite_source_response_5xx_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r) {
 
     if (r->headers_out.status / 100 == 5)
+        return 1;
+    else
+        return 0;
+}
+
+static double
+ngx_http_graphite_source_response_xxx_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r) {
+
+    ngx_uint_t status = ngx_atoi(source->name.data + sizeof("response_") - 1, 3);
+    if (r->headers_out.status == status)
         return 1;
     else
         return 0;
