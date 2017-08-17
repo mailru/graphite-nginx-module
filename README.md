@@ -245,6 +245,7 @@ response\_2xx\_rps      | rps   | sum  | total responses number with 2xx code
 response\_3xx\_rps      | rps   | sum  | total responses number with 3xx code
 response\_4xx\_rps      | rps   | sum  | total responses number with 4xx code
 response\_5xx\_rps      | rps   | sum  | total responses number with 5xx code
+response\_[0-9]{3}\_rps | rps   | sum  | total responses number with given code
 
 Percentiles
 ===========
