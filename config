@@ -6,11 +6,23 @@ ngx_addon_name=ngx_http_graphite_module
 if test -n "$ngx_module_link"; then
     ngx_module_type=HTTP
     ngx_module_name=ngx_http_graphite_module
-    ngx_module_srcs="$ngx_addon_dir/src/ngx_http_graphite_module.c"
+    ngx_module_incs="
+        $ngx_addon_dir/src\
+    "
+    ngx_module_srcs="\
+        $ngx_addon_dir/src/ngx_http_graphite_allocator.c\
+        $ngx_addon_dir/src/ngx_http_graphite_array.c\
+        $ngx_addon_dir/src/ngx_http_graphite_module.c\
+    "
     . auto/module
 else
     HTTP_MODULES="$HTTP_MODULES ngx_http_graphite_module"
+    HTTP_INCS="$HTTP_INCS \
+        $ngx_addon_dir/src\
+    "
     NGX_ADDON_SRCS="$NGX_ADDON_SRCS \
-                    $ngx_addon_dir/src/ngx_http_graphite_module.c \
-                    "
+        $ngx_addon_dir/src/ngx_http_graphite_allocator.c \
+        $ngx_addon_dir/src/ngx_http_graphite_array.c \
+        $ngx_addon_dir/src/ngx_http_graphite_module.c \
+    "
 fi
