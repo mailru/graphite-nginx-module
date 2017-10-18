@@ -824,27 +824,29 @@ ngx_http_graphite_add_param_to_data(ngx_http_graphite_context_t *context, ngx_ui
         for (i = 0; i < storage->metrics->nelts; i++) {
             ngx_http_graphite_metric_t *metric = &((ngx_http_graphite_metric_t*)storage->metrics->elts)[i];
             if (metric->split == split && metric->param == param)
-                return NGX_CONF_OK;
+                break;
         }
 
-        ngx_http_graphite_metric_t *metric = ngx_http_graphite_array_push(storage->metrics);
-        if (!metric) {
-            ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite can't alloc memory");
-            return NGX_CONF_ERROR;
-        }
-
-        metric->split = split;
-        metric->param = param;
-        if (context->phase == PHASE_REQUEST) {
-            metric->acc = ngx_http_graphite_allocator_alloc(storage->allocator, sizeof(ngx_http_graphite_acc_t) * (storage->max_interval + 1));
-            if (metric->acc == NULL) {
+        if (i == storage->metrics->nelts) {
+            ngx_http_graphite_metric_t *metric = ngx_http_graphite_array_push(storage->metrics);
+            if (!metric) {
                 ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite can't alloc memory");
                 return NGX_CONF_ERROR;
             }
-            ngx_memzero(metric->acc, sizeof(ngx_http_graphite_acc_t) * (storage->max_interval + 1));
+
+            metric->split = split;
+            metric->param = param;
+            if (context->phase == PHASE_REQUEST) {
+                metric->acc = ngx_http_graphite_allocator_alloc(storage->allocator, sizeof(ngx_http_graphite_acc_t) * (storage->max_interval + 1));
+                if (metric->acc == NULL) {
+                    ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite can't alloc memory");
+                    return NGX_CONF_ERROR;
+                }
+                ngx_memzero(metric->acc, sizeof(ngx_http_graphite_acc_t) * (storage->max_interval + 1));
+            }
+            else
+                metric->acc = NULL;
         }
-        else
-            metric->acc = NULL;
 
         ngx_uint_t *m = ngx_http_graphite_array_push(data->metrics);
         if (!m) {
@@ -852,7 +854,7 @@ ngx_http_graphite_add_param_to_data(ngx_http_graphite_context_t *context, ngx_ui
             return NGX_CONF_ERROR;
         }
 
-        *m = storage->metrics->nelts - 1;
+        *m = i;
 
     }
     else {
@@ -860,27 +862,29 @@ ngx_http_graphite_add_param_to_data(ngx_http_graphite_context_t *context, ngx_ui
         for (i = 0; i < storage->statistics->nelts; i++) {
             ngx_http_graphite_statistic_t *statistic = &((ngx_http_graphite_statistic_t*)storage->statistics->elts)[i];
             if (statistic->split == split && statistic->param == param)
-                return NGX_CONF_OK;
+                break;
         }
 
-        ngx_http_graphite_statistic_t *statistic = ngx_http_graphite_array_push(storage->statistics);
-        if (!statistic) {
-            ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite can't alloc memory");
-            return NGX_CONF_ERROR;
-        }
-
-        statistic->split = split;
-        statistic->param = param;
-        if (context->phase == PHASE_REQUEST) {
-            statistic->stt = ngx_http_graphite_allocator_alloc(storage->allocator, sizeof(ngx_http_graphite_stt_t));
-            if (statistic->stt == NULL) {
+        if (i == storage->statistics->nelts) {
+            ngx_http_graphite_statistic_t *statistic = ngx_http_graphite_array_push(storage->statistics);
+            if (!statistic) {
                 ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite can't alloc memory");
                 return NGX_CONF_ERROR;
             }
-            ngx_memzero(statistic->stt, sizeof(ngx_http_graphite_stt_t));
+
+            statistic->split = split;
+            statistic->param = param;
+            if (context->phase == PHASE_REQUEST) {
+                statistic->stt = ngx_http_graphite_allocator_alloc(storage->allocator, sizeof(ngx_http_graphite_stt_t));
+                if (statistic->stt == NULL) {
+                    ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite can't alloc memory");
+                    return NGX_CONF_ERROR;
+                }
+                ngx_memzero(statistic->stt, sizeof(ngx_http_graphite_stt_t));
+            }
+            else
+                statistic->stt = NULL;
         }
-        else
-            statistic->stt = NULL;
 
         ngx_uint_t *s = ngx_http_graphite_array_push(data->statistics);
         if (!s) {
@@ -888,7 +892,7 @@ ngx_http_graphite_add_param_to_data(ngx_http_graphite_context_t *context, ngx_ui
             return NGX_CONF_ERROR;
         }
 
-        *s = storage->statistics->nelts - 1;
+        *s = i;
     }
 
     return NGX_CONF_OK;
