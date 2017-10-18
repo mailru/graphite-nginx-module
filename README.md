@@ -163,7 +163,6 @@ name       | Yes      | path prefix for all graphs
 interval   | Yes\*    | aggregation interval, time intrval value format (`m` - minutes)
 aggregate  | Yes\*    | aggregation function on values
 percentile | Yes\*    | percentile level
-\* - you must set either interval with aggregate or percentile
 
 #### aggregate functions
 func   | Description
@@ -174,35 +173,17 @@ avg    | average value on interval
 
 Example: see below.
 
-### graphite_param_hash_bucket_size
-**syntax:** *graphite_param_hash_max_size size;*
-
-**default:** *graphite_param_hash_max_size 64;*
-
-**context:** *http*
-
-Sets the bucket size for the params hash table.
-
-### graphite_param_hash_max_size
-**syntax:** *graphite_param_hash_max_size size;*
-
-**default:** *graphite_param_hash_max_size 512;*
-
-**context:** *http*
-
-Sets the maximum size of the params hash tables.
-
 Nginx API for Lua
 =================
 
-**syntax:** *ngx.graphite(&lt;name&gt;,&lt;value&gt;)*
+**syntax:** *ngx.graphite(&lt;name&gt;,&lt;value&gt;[,&lt;config&gt;])*
 
 Write stat value into aggregator function. Floating point numbers accepted in `value`.
 
 *Available after applying patch to lua-nginx-module.* See [the installation instructions](#build-nginx-with-lua-and-graphite-modules).
 
 ```lua
-ngx.graphite(name, value)
+ngx.graphite(name, value, config)
 ```
 
 Example:
@@ -218,10 +199,18 @@ location /foo/ {
         ngx.graphite("lua.foo_sum", 0.01)
         ngx.graphite("lua.foo_rps", 1)
         ngx.graphite("lua.foo_avg", ngx.var.request_uri:len())
+		ngx.graphite("lua.auto_rps", 1, "aggregate=persec interval=1m percentile=50|90|99")
         ngx.say("hello")
     ';
 }
 ```
+
+You must either specify the `graphite_param` command or pass the `config` argument.
+If you choose the second option, the data for this graph will not be sent until the first call to ngx.graphite.
+
+**Warning:**
+If you do not declare graph using `graphite_param` command then memory for the graph will be allocated dynamically in module's shared memory.
+If module's shared memory is exhausted while nginx is running, no new graphs will be created and an error message will be logged.
 
 Params
 ======
