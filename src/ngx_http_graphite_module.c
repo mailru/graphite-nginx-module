@@ -699,8 +699,12 @@ ngx_http_graphite_context_from_request(ngx_http_request_t *r) {
 
     ngx_http_graphite_main_conf_t *gmcf = ngx_http_get_module_main_conf(r, ngx_http_graphite_module);
 
-    ngx_slab_pool_t *shpool = (ngx_slab_pool_t*)gmcf->shared->shm.addr;
-    ngx_http_graphite_storage_t *storage = (ngx_http_graphite_storage_t*)shpool->data;
+    ngx_http_graphite_storage_t *storage = NULL;
+
+    if (gmcf->enable) {
+        ngx_slab_pool_t *shpool = (ngx_slab_pool_t*)gmcf->shared->shm.addr;
+        storage = (ngx_http_graphite_storage_t*)shpool->data;
+    }
 
     ngx_http_graphite_context_t context;
     context.phase = PHASE_REQUEST;
