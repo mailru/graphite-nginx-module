@@ -305,10 +305,8 @@ static double ngx_http_graphite_source_ssl_cache_usage(const ngx_http_graphite_s
 static double ngx_http_graphite_source_content_time(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
 static double ngx_http_graphite_source_gzip_time(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
 static double ngx_http_graphite_source_upstream_time(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
-#if nginx_version >= 1009001
 static double ngx_http_graphite_source_upstream_connect_time(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
 static double ngx_http_graphite_source_upstream_header_time(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
-#endif
 static double ngx_http_graphite_source_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
 static double ngx_http_graphite_source_keepalive_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
 static double ngx_http_graphite_source_response_2xx_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
@@ -316,12 +314,9 @@ static double ngx_http_graphite_source_response_3xx_rps(const ngx_http_graphite_
 static double ngx_http_graphite_source_response_4xx_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
 static double ngx_http_graphite_source_response_5xx_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
 static double ngx_http_graphite_source_response_xxx_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
+static double ngx_http_graphite_source_upstream_cache_status_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
 
-#if nginx_version >= 1009001
-#define SOURCE_COUNT 18
-#else
-#define SOURCE_COUNT 16
-#endif
+#define SOURCE_COUNT 19
 
 static const ngx_http_graphite_source_t ngx_http_graphite_sources[SOURCE_COUNT] = {
     { .name = ngx_string("request_time"), .get = ngx_http_graphite_source_request_time, .aggregate = ngx_http_graphite_aggregate_avg },
@@ -333,10 +328,8 @@ static const ngx_http_graphite_source_t ngx_http_graphite_sources[SOURCE_COUNT] 
     { .name = ngx_string("content_time"), .get = ngx_http_graphite_source_content_time, .aggregate = ngx_http_graphite_aggregate_avg },
     { .name = ngx_string("gzip_time"), .get = ngx_http_graphite_source_gzip_time, .aggregate = ngx_http_graphite_aggregate_avg },
     { .name = ngx_string("upstream_time"), .get = ngx_http_graphite_source_upstream_time, .aggregate = ngx_http_graphite_aggregate_avg },
-#if nginx_version >= 1009001
     { .name = ngx_string("upstream_connect_time"), .get = ngx_http_graphite_source_upstream_connect_time, .aggregate = ngx_http_graphite_aggregate_avg },
     { .name = ngx_string("upstream_header_time"), .get = ngx_http_graphite_source_upstream_header_time, .aggregate = ngx_http_graphite_aggregate_avg },
-#endif
     { .name = ngx_string("rps"), .get = ngx_http_graphite_source_rps, .aggregate = ngx_http_graphite_aggregate_persec },
     { .name = ngx_string("keepalive_rps"), .get = ngx_http_graphite_source_keepalive_rps, .aggregate = ngx_http_graphite_aggregate_persec },
     { .name = ngx_string("response_2xx_rps"), .get = ngx_http_graphite_source_response_2xx_rps, .aggregate = ngx_http_graphite_aggregate_persec },
@@ -344,6 +337,7 @@ static const ngx_http_graphite_source_t ngx_http_graphite_sources[SOURCE_COUNT] 
     { .name = ngx_string("response_4xx_rps"), .get = ngx_http_graphite_source_response_4xx_rps, .aggregate = ngx_http_graphite_aggregate_persec },
     { .name = ngx_string("response_5xx_rps"), .get = ngx_http_graphite_source_response_5xx_rps, .aggregate = ngx_http_graphite_aggregate_persec },
     { .name = ngx_string("response_\\d\\d\\d_rps"), .re = 1, .get = ngx_http_graphite_source_response_xxx_rps, .aggregate = ngx_http_graphite_aggregate_persec },
+    { .name = ngx_string("upstream_cache_(miss|bypass|expired|stale|updating|revalidated|hit)_rps"), .re = 1, .get = ngx_http_graphite_source_upstream_cache_status_rps, .aggregate = ngx_http_graphite_aggregate_persec },
 };
 
 typedef struct ngx_http_graphite_param_s {
@@ -2888,10 +2882,9 @@ ngx_http_graphite_source_upstream_time(const ngx_http_graphite_source_t *source,
     return (double)ms;
 }
 
-#if nginx_version >= 1009001
 static double
 ngx_http_graphite_source_upstream_connect_time(const ngx_http_graphite_source_t *source, ngx_http_request_t *r) {
-
+#if nginx_version >= 1009001
     ngx_uint_t i;
     ngx_msec_int_t ms;
     ngx_http_upstream_state_t *state;
@@ -2910,10 +2903,14 @@ ngx_http_graphite_source_upstream_connect_time(const ngx_http_graphite_source_t 
     ms = ngx_max(ms, 0);
 
     return (double)ms;
+#else
+    return 0;
+#endif
 }
 
 static double
 ngx_http_graphite_source_upstream_header_time(const ngx_http_graphite_source_t *source, ngx_http_request_t *r) {
+#if nginx_version >= 1009001
 
     ngx_uint_t i;
     ngx_msec_int_t ms;
@@ -2933,8 +2930,10 @@ ngx_http_graphite_source_upstream_header_time(const ngx_http_graphite_source_t *
     ms = ngx_max(ms, 0);
 
     return (double)ms;
-}
+#else
+    return 0
 #endif
+}
 
 static double
 ngx_http_graphite_source_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r) {
@@ -2995,6 +2994,27 @@ ngx_http_graphite_source_response_xxx_rps(const ngx_http_graphite_source_t *sour
         return 1;
     else
         return 0;
+}
+
+static double
+ngx_http_graphite_source_upstream_cache_status_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r) {
+#if (defined(NGX_HTTP_CACHE))
+
+    if (r->upstream == NULL || r->upstream->cache_status == 0)
+        return 0;
+
+    ngx_str_t param_status;
+    param_status.data = source->name.data + sizeof("upstream_cache_") - 1;
+    param_status.len = source->name.len - (sizeof("upstream_cache_") - 1) - 4;
+
+    ngx_str_t cache_status = ngx_http_cache_status[r->upstream->cache_status - 1];
+    if (cache_status.len == param_status.len && ngx_strncasecmp(cache_status.data, param_status.data, param_status.len) == 0)
+        return 1;
+    else
+        return 0;
+#else
+    return 0;
+#endif
 }
 
 static double
