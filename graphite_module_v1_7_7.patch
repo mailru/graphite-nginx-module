@@ -1,8 +1,8 @@
-Only in b: .git
-diff -U3 -b -r a/src/event/ngx_event_openssl.c b/src/event/ngx_event_openssl.c
---- a/src/event/ngx_event_openssl.c	2016-10-18 18:03:13.000000000 +0300
-+++ b/src/event/ngx_event_openssl.c	2017-01-20 12:18:44.544232635 +0300
-@@ -1122,6 +1122,16 @@
+diff --git a/src/event/ngx_event_openssl.c b/src/event/ngx_event_openssl.c
+index 2c4e114..98ae6ba 100644
+--- a/src/event/ngx_event_openssl.c
++++ b/src/event/ngx_event_openssl.c
+@@ -1228,6 +1228,16 @@ ngx_ssl_handshake(ngx_connection_t *c)
  
      ngx_ssl_clear_error(c->log);
  
@@ -19,7 +19,7 @@ diff -U3 -b -r a/src/event/ngx_event_openssl.c b/src/event/ngx_event_openssl.c
      n = SSL_do_handshake(c->ssl->connection);
  
      ngx_log_debug1(NGX_LOG_DEBUG_EVENT, c->log, 0, "SSL_do_handshake: %d", n);
-@@ -1201,6 +1211,13 @@
+@@ -1307,6 +1317,13 @@ ngx_ssl_handshake(ngx_connection_t *c)
  #endif
  #endif
  
@@ -33,10 +33,11 @@ diff -U3 -b -r a/src/event/ngx_event_openssl.c b/src/event/ngx_event_openssl.c
          return NGX_OK;
      }
  
-diff -U3 -b -r a/src/event/ngx_event_openssl.h b/src/event/ngx_event_openssl.h
---- a/src/event/ngx_event_openssl.h	2016-10-18 18:03:13.000000000 +0300
-+++ b/src/event/ngx_event_openssl.h	2017-01-20 12:18:24.479892364 +0300
-@@ -74,6 +74,14 @@
+diff --git a/src/event/ngx_event_openssl.h b/src/event/ngx_event_openssl.h
+index 2a14980..daac038 100644
+--- a/src/event/ngx_event_openssl.h
++++ b/src/event/ngx_event_openssl.h
+@@ -79,6 +79,14 @@ struct ngx_ssl_connection_s {
      ngx_event_handler_pt        saved_read_handler;
      ngx_event_handler_pt        saved_write_handler;
  
@@ -51,92 +52,55 @@ diff -U3 -b -r a/src/event/ngx_event_openssl.h b/src/event/ngx_event_openssl.h
      unsigned                    handshaked:1;
      unsigned                    renegotiation:1;
      unsigned                    buffer:1;
-diff -U3 -b -r a/src/http/modules/ngx_http_gzip_filter_module.c b/src/http/modules/ngx_http_gzip_filter_module.c
---- a/src/http/modules/ngx_http_gzip_filter_module.c	2016-10-18 18:03:14.000000000 +0300
-+++ b/src/http/modules/ngx_http_gzip_filter_module.c	2017-01-20 12:18:24.480892331 +0300
-@@ -365,6 +365,16 @@
-         }
-     }
+diff --git a/src/http/modules/ngx_http_gzip_filter_module.c b/src/http/modules/ngx_http_gzip_filter_module.c
+index 287fd36..656dc75 100644
+--- a/src/http/modules/ngx_http_gzip_filter_module.c
++++ b/src/http/modules/ngx_http_gzip_filter_module.c
+@@ -424,7 +424,16 @@ ngx_http_gzip_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
+             }
+ 
  
 +#if (NGX_GRAPHITE)
-+    struct timeval tp;
-+    if (r->gzip_process == 0) {
-+        r->gzip_process = 1;
-+        ngx_gettimeofday(&tp);
-+        r->gzip_start_sec = tp.tv_sec;
-+        r->gzip_start_msec = tp.tv_usec / 1000;
-+    }
++            struct timeval start_tp;
++            ngx_gettimeofday(&start_tp);
 +#endif
-+
-     if (in) {
-         if (ngx_chain_add_copy(r->pool, &ctx->in, in) != NGX_OK) {
-             goto failed;
-@@ -440,6 +450,11 @@
-         if (ctx->out == NULL && !flush) {
-             ngx_http_gzip_filter_free_copy_buf(r, ctx);
- 
+             rc = ngx_http_gzip_filter_deflate(r, ctx);
 +#if (NGX_GRAPHITE)
-+            ngx_gettimeofday(&tp);
-+            r->gzip_end_sec = tp.tv_sec;
-+            r->gzip_end_msec = tp.tv_usec / 1000;
++            struct timeval stop_tp;
++            ngx_gettimeofday(&stop_tp);
++            r->gzip_time += (stop_tp.tv_sec - start_tp.tv_sec) * 1000 + (stop_tp.tv_usec - start_tp.tv_usec) / 1000;
 +#endif
-             return ctx->busy ? NGX_AGAIN : NGX_OK;
-         }
  
-@@ -465,6 +480,12 @@
-         flush = 0;
- 
-         if (ctx->done) {
-+
-+#if (NGX_GRAPHITE)
-+            ngx_gettimeofday(&tp);
-+            r->gzip_end_sec = tp.tv_sec;
-+            r->gzip_end_msec = tp.tv_usec / 1000;
-+#endif
-             return rc;
-         }
-     }
-@@ -483,6 +504,12 @@
- 
-     ngx_http_gzip_filter_free_copy_buf(r, ctx);
- 
-+#if (NGX_GRAPHITE)
-+    ngx_gettimeofday(&tp);
-+    r->gzip_end_sec = tp.tv_sec;
-+    r->gzip_end_msec = tp.tv_usec / 1000;
-+#endif
-+
-     return NGX_ERROR;
- }
- 
-diff -U3 -b -r a/src/http/ngx_http_core_module.c b/src/http/ngx_http_core_module.c
---- a/src/http/ngx_http_core_module.c	2016-10-18 18:03:14.000000000 +0300
-+++ b/src/http/ngx_http_core_module.c	2017-01-20 12:18:24.482892266 +0300
-@@ -1367,7 +1367,19 @@
+             if (rc == NGX_OK) {
+                 break;
+diff --git a/src/http/ngx_http_core_module.c b/src/http/ngx_http_core_module.c
+index 7e40e78..3d7336d 100644
+--- a/src/http/ngx_http_core_module.c
++++ b/src/http/ngx_http_core_module.c
+@@ -1384,7 +1395,17 @@ ngx_http_core_content_phase(ngx_http_request_t *r,
  
      if (r->content_handler) {
          r->write_event_handler = ngx_http_request_empty_handler;
 -        ngx_http_finalize_request(r, r->content_handler(r));
 +#if (NGX_GRAPHITE)
-+        struct timeval tp;
-+        ngx_gettimeofday(&tp);
-+        r->content_start_sec = tp.tv_sec;
-+        r->content_start_msec = tp.tv_usec / 1000;
++        struct timeval start_tp;
++        ngx_gettimeofday(&start_tp);
 +#endif
 +        ngx_int_t rc = r->content_handler(r);
 +#if (NGX_GRAPHITE)
-+        ngx_gettimeofday(&tp);
-+        r->content_end_sec = tp.tv_sec;
-+        r->content_end_msec = tp.tv_usec / 1000;
++        struct timeval stop_tp;
++        ngx_gettimeofday(&stop_tp);
++        r->content_time = (stop_tp.tv_sec - start_tp.tv_sec) * 1000 + (stop_tp.tv_usec - start_tp.tv_usec) / 1000;
 +#endif
 +        ngx_http_finalize_request(r, rc);
          return NGX_OK;
      }
  
-diff -U3 -b -r a/src/http/ngx_http_request.h b/src/http/ngx_http_request.h
---- a/src/http/ngx_http_request.h	2016-10-18 18:03:14.000000000 +0300
-+++ b/src/http/ngx_http_request.h	2017-01-20 12:18:24.483892233 +0300
-@@ -578,6 +578,23 @@
+diff --git a/src/http/ngx_http_request.h b/src/http/ngx_http_request.h
+index 283c582..68690ec 100644
+--- a/src/http/ngx_http_request.h
++++ b/src/http/ngx_http_request.h
+@@ -580,6 +580,20 @@ struct ngx_http_request_s {
  
      unsigned                          http_minor:16;
      unsigned                          http_major:16;
@@ -144,18 +108,15 @@ diff -U3 -b -r a/src/http/ngx_http_request.h b/src/http/ngx_http_request.h
 +#define NGX_GRAPHITE_PATCH
 +
 +#if (NGX_GRAPHITE)
-+    time_t                            content_start_sec;
-+    ngx_msec_t                        content_start_msec;
-+    time_t                            content_end_sec;
-+    ngx_msec_t                        content_end_msec;
++    ngx_msec_int_t                    content_time;
 +#endif
 +
 +#if ((NGX_HTTP_GZIP) && (NGX_GRAPHITE))
-+    ngx_uint_t                        gzip_process;
-+    time_t                            gzip_start_sec;
-+    ngx_msec_t                        gzip_start_msec;
-+    time_t                            gzip_end_sec;
-+    ngx_msec_t                        gzip_end_msec;
++    ngx_msec_int_t                    gzip_time;
++#endif
++
++#if (NGX_GRAPHITE)
++    ngx_msec_int_t                    lua_time;
 +#endif
  };
  
