@@ -236,6 +236,7 @@ response\_4xx\_rps      | rps   | sum  | total responses number with 4xx code
 response\_5xx\_rps      | rps   | sum  | total responses number with 5xx code
 response\_[0-9]{3}\_rps | rps   | sum  | total responses number with given code
 upstream\_cache\_(miss\|bypass\|expired\|stale\|updating\|revalidated\|hit)\_rps | rps   | sum  | totar responses with a given upstream cache status
+lua\_time               | ms    | avg  | time spent on lua code
 
 Percentiles
 ===========
