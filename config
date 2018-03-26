@@ -11,6 +11,7 @@ if test -n "$ngx_module_link"; then
         $ngx_addon_dir/src/ngx_http_graphite_allocator.c\
         $ngx_addon_dir/src/ngx_http_graphite_array.c\
         $ngx_addon_dir/src/ngx_http_graphite_module.c\
+        $ngx_addon_dir/src/ngx_http_graphite_net.c\
     "
     . auto/module
 else
@@ -20,5 +21,6 @@ else
         $ngx_addon_dir/src/ngx_http_graphite_allocator.c \
         $ngx_addon_dir/src/ngx_http_graphite_array.c \
         $ngx_addon_dir/src/ngx_http_graphite_module.c \
+        $ngx_addon_dir/src/ngx_http_graphite_net.c \
     "
 fi

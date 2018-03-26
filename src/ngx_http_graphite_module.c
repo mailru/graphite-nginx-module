@@ -3,61 +3,8 @@
 #include <ngx_core.h>
 #include <ngx_http.h>
 
-#include "ngx_http_graphite_allocator.h"
-#include "ngx_http_graphite_array.h"
-
-typedef struct ngx_http_graphite_storage_s {
-    time_t start_time;
-    time_t last_time;
-    time_t event_time;
-
-    ngx_uint_t max_interval;
-
-    ngx_http_graphite_allocator_t *allocator;
-
-    ngx_http_graphite_array_t *metrics;
-    ngx_http_graphite_array_t *statistics;
-
-    ngx_http_graphite_array_t *params;
-    ngx_http_graphite_array_t *internals;
-} ngx_http_graphite_storage_t;
-
-typedef struct {
-
-    ngx_uint_t enable;
-
-    ngx_str_t host;
-    ngx_str_t protocol;
-    ngx_shm_zone_t *shared;
-    char *buffer;
-
-    ngx_str_t prefix;
-
-    struct in_addr server;
-    int port;
-    ngx_uint_t frequency;
-
-    ngx_array_t *sources;
-    ngx_array_t *intervals;
-    ngx_array_t *splits;
-
-    ngx_array_t *default_params;
-
-    size_t shared_size;
-    size_t buffer_size;
-    size_t package_size;
-
-    ngx_array_t *template;
-
-    ngx_array_t *default_data_template;
-    ngx_array_t *default_data_params;
-    ngx_http_complex_value_t *default_data_filter;
-
-    ngx_array_t *datas;
-
-    ngx_http_graphite_storage_t *storage;
-
-} ngx_http_graphite_main_conf_t;
+#include "ngx_http_graphite_module.h"
+#include "ngx_http_graphite_net.h"
 
 typedef struct {
     ngx_array_t *default_data_template;
@@ -122,6 +69,7 @@ static char *ngx_http_graphite_config_arg_buffer(ngx_http_graphite_context_t *co
 static char *ngx_http_graphite_config_arg_package(ngx_http_graphite_context_t *context, void *data, ngx_str_t *value);
 static char *ngx_http_graphite_config_arg_template(ngx_http_graphite_context_t *context, void *data, ngx_str_t *value);
 static char *ngx_http_graphite_config_arg_protocol(ngx_http_graphite_context_t *context, void *data, ngx_str_t *value);
+static char *ngx_http_graphite_config_arg_timeout(ngx_http_graphite_context_t *context, void *data, ngx_str_t *value);
 
 static char *ngx_http_graphite_param_arg_name(ngx_http_graphite_context_t *context, void *data, ngx_str_t *value);
 static char *ngx_http_graphite_param_arg_aggregate(ngx_http_graphite_context_t *context, void *data, ngx_str_t *value);
@@ -214,9 +162,13 @@ typedef struct ngx_http_graphite_arg_s {
     ngx_str_t deflt;
 } ngx_http_graphite_arg_t;
 
+#ifdef NGX_GRAPHITE_PATCH
 #define DEFAULT_PARAMS "request_time|bytes_sent|body_bytes_sent|request_length|ssl_handshake_time|ssl_cache_usage|content_time|gzip_time|upstream_time|upstream_connect_time|upstream_header_time|rps|keepalive_rps|response_2xx_rps|response_3xx_rps|response_4xx_rps|response_5xx_rps"
+#else
+#define DEFAULT_PARAMS "request_time|bytes_sent|body_bytes_sent|request_length|ssl_cache_usage|rps|keepalive_rps|response_2xx_rps|response_3xx_rps|response_4xx_rps|response_5xx_rps"
+#endif
 
-#define CONFIG_ARGS_COUNT 12
+#define CONFIG_ARGS_COUNT 13
 
 static const ngx_http_graphite_arg_t ngx_http_graphite_config_args[CONFIG_ARGS_COUNT] = {
     { ngx_string("prefix"), ngx_http_graphite_config_arg_prefix, ngx_null_string },
@@ -231,6 +183,7 @@ static const ngx_http_graphite_arg_t ngx_http_graphite_config_args[CONFIG_ARGS_C
     { ngx_string("package"), ngx_http_graphite_config_arg_package, ngx_string("1400") },
     { ngx_string("template"), ngx_http_graphite_config_arg_template, ngx_null_string },
     { ngx_string("protocol"), ngx_http_graphite_config_arg_protocol, ngx_string("udp") },
+    { ngx_string("timeout"), ngx_http_graphite_config_arg_timeout, ngx_string("100") },
 };
 
 #define PARAM_ARGS_COUNT 4
@@ -387,7 +340,7 @@ typedef struct ngx_http_graphite_template_s {
 } ngx_http_graphite_template_t;
 
 static char *ngx_http_graphite_template_compile(ngx_http_graphite_context_t *context, ngx_array_t *template, const ngx_http_graphite_template_arg_t *args, size_t nargs, const ngx_str_t *value);
-static char *ngx_http_graphite_template_execute(char* buffer, size_t buffer_size, const ngx_array_t *template, const ngx_str_t *variables[]);
+static u_char *ngx_http_graphite_template_execute(u_char* buffer, size_t buffer_size, const ngx_array_t *template, const ngx_str_t *variables[]);
 static size_t ngx_http_graphite_template_len(const ngx_array_t *template, const ngx_str_t *variables[]);
 
 typedef enum {
@@ -960,7 +913,7 @@ ngx_http_graphite_config(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         gmcf->host.len = host_size;
     }
 
-    if (gmcf->server.s_addr == 0) {
+    if (gmcf->server.name.len == 0) {
         ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite config server not set");
         return NGX_CONF_ERROR;
     }
@@ -1013,6 +966,21 @@ ngx_http_graphite_config(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         return NGX_CONF_ERROR;
     }
 
+    ngx_url_t u;
+    ngx_memzero(&u, sizeof(ngx_url_t));
+
+    u.url = gmcf->server.name;
+    u.default_port = gmcf->port;
+
+    if (ngx_parse_url(cf->pool, &u) != NGX_OK) {
+        if (u.err)
+            ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "%s in resolver \"%V\"", u.err, &u.url);
+        return NGX_CONF_ERROR;
+    }
+
+    gmcf->server.sockaddr = u.addrs[0].sockaddr;
+    gmcf->server.socklen = u.addrs[0].socklen;
+
     ngx_str_t graphite_shared_id;
     graphite_shared_id.len = graphite_shared_name.len + 32;
     graphite_shared_id.data = ngx_palloc(cf->pool, graphite_shared_id.len);
@@ -1034,11 +1002,12 @@ ngx_http_graphite_config(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     gmcf->shared->init = ngx_http_graphite_shared_init;
     gmcf->shared->data = gmcf;
 
-    gmcf->buffer = ngx_palloc(cf->pool, gmcf->buffer_size);
-    if (!gmcf->buffer) {
+    gmcf->buffer.start = ngx_palloc(cf->pool, gmcf->buffer_size);
+    if (!gmcf->buffer.start) {
         ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't alloc memory");
         return NGX_CONF_ERROR;
     }
+    gmcf->buffer.end = gmcf->buffer.start + gmcf->buffer_size;
 
     gmcf->enable = 1;
 
@@ -1385,38 +1354,20 @@ ngx_http_graphite_config_arg_protocol(ngx_http_graphite_context_t *context, void
     return ngx_http_graphite_parse_string(context, value, &gmcf->protocol);
 }
 
-#define SERVER_LEN 255
+static char *
+ngx_http_graphite_config_arg_timeout(ngx_http_graphite_context_t *context, void *data, ngx_str_t *value) {
+
+    ngx_http_graphite_main_conf_t *gmcf = data;
+    gmcf->timeout = ngx_atoi(value->data, value->len) * 1000;
+
+    return NGX_CONF_OK;
+}
 
 static char *
 ngx_http_graphite_config_arg_server(ngx_http_graphite_context_t *context, void *data, ngx_str_t *value) {
 
     ngx_http_graphite_main_conf_t *gmcf = data;
-
-    char server[SERVER_LEN];
-    if (value->len >= SERVER_LEN) {
-        ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite server name too long");
-        return NGX_CONF_ERROR;
-    }
-
-    ngx_memcpy((u_char*)server, value->data, value->len);
-    server[value->len] = '\0';
-
-    in_addr_t a = inet_addr(server);
-    if (a != (in_addr_t)-1 || !a)
-        gmcf->server.s_addr = a;
-    else
-    {
-        struct hostent *host = gethostbyname(server);
-        if (host != NULL) {
-            gmcf->server = *(struct in_addr*)*host->h_addr_list;
-        }
-        else {
-            ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite can't resolve server name");
-            return NGX_CONF_ERROR;
-        }
-    }
-
-    return NGX_CONF_OK;
+    return ngx_http_graphite_parse_string(context, value, &gmcf->server.name);
 }
 
 static char *
@@ -1676,7 +1627,7 @@ ngx_http_graphite_add_default_data(ngx_conf_t *cf, ngx_array_t *datas, const ngx
     if (!split.data)
         return NGX_CONF_ERROR;
 
-    ngx_http_graphite_template_execute((char*)split.data, split.len, template, variables);
+    ngx_http_graphite_template_execute(split.data, split.len, template, variables);
 
     return ngx_http_graphite_add_data(cf, datas, &split, params, filter);
 }
@@ -2057,10 +2008,10 @@ ngx_http_graphite_template_compile(ngx_http_graphite_context_t *context, ngx_arr
     return NGX_CONF_OK;
 }
 
-static char *
-ngx_http_graphite_template_execute(char* buffer, size_t buffer_size, const ngx_array_t *template, const ngx_str_t *variables[]) {
+static u_char *
+ngx_http_graphite_template_execute(u_char* buffer, size_t buffer_size, const ngx_array_t *template, const ngx_str_t *variables[]) {
 
-    char *b = buffer;
+    u_char *b = buffer;
 
     ngx_uint_t i;
     for (i = 0; i < template->nelts; i++) {
@@ -2072,7 +2023,7 @@ ngx_http_graphite_template_execute(char* buffer, size_t buffer_size, const ngx_a
         else
             data = variables[arg->variable];
 
-        b = (char*)ngx_snprintf((u_char*)b, buffer_size - (b - buffer), "%V", data);
+        b = ngx_snprintf((u_char*)b, buffer_size - (b - buffer), "%V", data);
     }
 
     return b;
@@ -2457,8 +2408,8 @@ ngx_http_graphite(ngx_http_request_t *r, const ngx_str_t *name, double value, co
     return NGX_OK;
 }
 
-static char*
-ngx_http_graphite_print_metric(ngx_http_graphite_main_conf_t *gmcf, ngx_http_graphite_storage_t *storage, ngx_uint_t m, const ngx_http_graphite_interval_t *interval, time_t ts, char *buffer, size_t buffer_size) {
+static u_char*
+ngx_http_graphite_print_metric(ngx_http_graphite_main_conf_t *gmcf, ngx_http_graphite_storage_t *storage, ngx_uint_t m, const ngx_http_graphite_interval_t *interval, time_t ts, u_char *buffer, size_t buffer_size) {
 
     const ngx_http_graphite_metric_t *metric = &(((ngx_http_graphite_metric_t*)storage->metrics->elts)[m]);
     const ngx_http_graphite_param_t *param = &((ngx_http_graphite_param_t*)storage->params->elts)[metric->param];
@@ -2482,14 +2433,14 @@ ngx_http_graphite_print_metric(ngx_http_graphite_main_conf_t *gmcf, ngx_http_gra
 
     double value = param->aggregate(interval, &aggregate);
 
-    char *b = buffer;
+    u_char *b = buffer;
 
     if (metric->split != SPLIT_INTERNAL) {
         const ngx_str_t *split = &((ngx_str_t*)gmcf->splits->elts)[metric->split];
         if (!gmcf->template->nelts) {
             if (gmcf->prefix.len)
-                b = (char*)ngx_snprintf((u_char*)b, buffer_size - (b - buffer), "%V.", &gmcf->prefix);
-            b = (char*)ngx_snprintf((u_char*)b, buffer_size - (b - buffer), "%V.%V.%V_%V", &gmcf->host, split, &param->name, &interval->name);
+                b = ngx_snprintf((u_char*)b, buffer_size - (b - buffer), "%V.", &gmcf->prefix);
+            b = ngx_snprintf((u_char*)b, buffer_size - (b - buffer), "%V.%V.%V_%V", &gmcf->host, split, &param->name, &interval->name);
         }
         else {
             const ngx_str_t *variables[] = TEMPLATE_VARIABLES(&gmcf->prefix, &gmcf->host, split, &param->name, &interval->name);
@@ -2498,17 +2449,17 @@ ngx_http_graphite_print_metric(ngx_http_graphite_main_conf_t *gmcf, ngx_http_gra
     }
     else {
         if (gmcf->prefix.len)
-            b = (char*)ngx_snprintf((u_char*)b, buffer_size - (b - buffer), "%V.", &gmcf->prefix);
-        b = (char*)ngx_snprintf((u_char*)b, buffer_size - (b - buffer), "%V.%V", &gmcf->host, &param->name);
+            b = ngx_snprintf((u_char*)b, buffer_size - (b - buffer), "%V.", &gmcf->prefix);
+        b = ngx_snprintf((u_char*)b, buffer_size - (b - buffer), "%V.%V", &gmcf->host, &param->name);
     }
 
-    b = (char*)ngx_snprintf((u_char*)b, buffer_size - (b - buffer), " %.3f %T\n", value, ts);
+    b = ngx_snprintf((u_char*)b, buffer_size - (b - buffer), " %.3f %T\n", value, ts);
 
     return b;
 }
 
-static char*
-ngx_http_graphite_print_statistic(ngx_http_graphite_main_conf_t *gmcf, ngx_http_graphite_storage_t *storage, ngx_uint_t s, time_t ts, char *buffer, size_t buffer_size) {
+static u_char*
+ngx_http_graphite_print_statistic(ngx_http_graphite_main_conf_t *gmcf, ngx_http_graphite_storage_t *storage, ngx_uint_t s, time_t ts, u_char *buffer, size_t buffer_size) {
 
     const ngx_http_graphite_statistic_t *statistic = &(((ngx_http_graphite_statistic_t*)storage->statistics->elts)[s]);
     const ngx_http_graphite_param_t *param = &((ngx_http_graphite_param_t*)storage->params->elts)[statistic->param];
@@ -2523,14 +2474,14 @@ ngx_http_graphite_print_statistic(ngx_http_graphite_main_conf_t *gmcf, ngx_http_
 
     ngx_http_graphite_stt_t *stt = statistic->stt;
 
-    char *b = buffer;
+    u_char *b = buffer;
 
     if (statistic->split != SPLIT_INTERNAL) {
         const ngx_str_t *split = &((ngx_str_t*)gmcf->splits->elts)[statistic->split];
         if (!gmcf->template->nelts) {
             if (gmcf->prefix.len)
-                b = (char*)ngx_snprintf((u_char*)b, buffer_size - (b - buffer), "%V.", &gmcf->prefix);
-            b = (char*)ngx_snprintf((u_char*)b, buffer_size - (b - buffer), "%V.%V.%V_%V", &gmcf->host, split, &param->name, &percentile);
+                b = ngx_snprintf((u_char*)b, buffer_size - (b - buffer), "%V.", &gmcf->prefix);
+            b = ngx_snprintf((u_char*)b, buffer_size - (b - buffer), "%V.%V.%V_%V", &gmcf->host, split, &param->name, &percentile);
         }
         else {
             const ngx_str_t *variables[] = TEMPLATE_VARIABLES(&gmcf->prefix, &gmcf->host, split, &param->name, &percentile);
@@ -2539,90 +2490,13 @@ ngx_http_graphite_print_statistic(ngx_http_graphite_main_conf_t *gmcf, ngx_http_
     }
     else {
         if (gmcf->prefix.len)
-            b = (char*)ngx_snprintf((u_char*)b, buffer_size - (b - buffer), "%V.", &gmcf->prefix);
-        b = (char*)ngx_snprintf((u_char*)b, buffer_size - (b - buffer), "%V.%V_%V", &gmcf->host, &param->name, &percentile);
+            b = ngx_snprintf((u_char*)b, buffer_size - (b - buffer), "%V.", &gmcf->prefix);
+        b = ngx_snprintf((u_char*)b, buffer_size - (b - buffer), "%V.%V_%V", &gmcf->host, &param->name, &percentile);
     }
 
-    b = (char*)ngx_snprintf((u_char*)b, buffer_size - (b - buffer), " %.3f %T\n", stt->q[P2_METRIC_COUNT / 2], ts);
+    b = ngx_snprintf((u_char*)b, buffer_size - (b - buffer), " %.3f %T\n", stt->q[P2_METRIC_COUNT / 2], ts);
 
     return b;
-}
-
-static ngx_int_t
-ngx_http_graphite_send_buffer(ngx_http_graphite_main_conf_t *gmcf, ngx_log_t *log, char *buffer) {
-
-    struct sockaddr_in sin;
-    ngx_memzero((char *)&sin, sizeof(struct sockaddr_in));
-    sin.sin_family = AF_INET;
-    sin.sin_addr = gmcf->server;
-    sin.sin_port = htons(gmcf->port);
-
-    int fd;
-    if (ngx_strncmp(gmcf->protocol.data, "tcp", 3) == 0)
-        fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    else
-        fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-
-    if (fd < 0) {
-        ngx_log_error(NGX_LOG_ALERT, log, 0, "graphite can't create socket");
-        return NGX_ERROR;
-    }
-
-    if (ngx_strncmp(gmcf->protocol.data, "tcp", 3) == 0) {
-
-        if (ngx_nonblocking(fd) == -1) {
-            ngx_log_error(NGX_LOG_ALERT, log, 0, "graphite can't set tcp socket nonblocking");
-            close(fd);
-            return NGX_ERROR;
-        }
-
-        if (connect(fd, (struct sockaddr*)&sin, sizeof(sin)) == -1) {
-            if (ngx_socket_errno != NGX_EINPROGRESS) {
-               ngx_log_error(NGX_LOG_ALERT, log, ngx_socket_errno, "graphite tcp connect failed");
-               close(fd);
-               return NGX_ERROR;
-            }
-        }
-    }
-
-    char *part = buffer;
-    char *next = NULL;
-    char *nl = NULL;
-
-    while (*part) {
-        next = part;
-        nl = part;
-
-        while ((next = strchr(next, '\n')) && ((size_t)(next - part) <= gmcf->package_size)) {
-            nl = next;
-            next++;
-        }
-        if (nl > part) {
-            if (ngx_strncmp(gmcf->protocol.data, "udp", 3) == 0) {
-                if (sendto(fd, part, nl - part + 1, 0, (struct sockaddr*)&sin, sizeof(sin)) == -1)
-                    ngx_log_error(NGX_LOG_ALERT, log, 0, "graphite can't send udp packet");
-            }
-            else if (ngx_strncmp(gmcf->protocol.data, "tcp", 3) == 0) {
-                if (send(fd, part, nl - part + 1, 0) < 0) {
-                    if (ngx_socket_errno == NGX_EAGAIN) {
-                        ngx_log_error(NGX_LOG_ALERT, log, 0, "graphite tcp buffer is full");
-                    }
-                    else {
-                        ngx_log_error(NGX_LOG_ALERT, log, 0, "graphite can't send tcp packet");
-                    }
-                }
-            }
-        }
-        else {
-            ngx_log_error(NGX_LOG_ALERT, log, 0, "graphite package size too small, need send %z", (size_t)(next - part));
-        }
-
-        part = nl + 1;
-    }
-
-    close(fd);
-
-    return NGX_OK;
 }
 
 static void
@@ -2633,8 +2507,8 @@ ngx_http_graphite_timer_handler(ngx_event_t *ev) {
     ngx_http_graphite_main_conf_t *gmcf;
     gmcf = ev->data;
 
-    char *buffer = gmcf->buffer;
-    char *b = buffer;
+    ngx_buf_t *buffer = &gmcf->buffer;
+    u_char *b = buffer->start;
 
     ngx_slab_pool_t *shpool = (ngx_slab_pool_t*)gmcf->shared->shm.addr;
     ngx_http_graphite_storage_t *storage = (ngx_http_graphite_storage_t*)shpool->data;
@@ -2646,6 +2520,12 @@ ngx_http_graphite_timer_handler(ngx_event_t *ev) {
         if (!(ngx_quit || ngx_terminate || ngx_exiting))
             ngx_add_timer(ev, gmcf->frequency);
         return;
+    }
+
+    if (gmcf->connection) {
+        ngx_log_error(NGX_LOG_ERR, ev->log, 0, "graphite can't send buffer completely");
+        ngx_close_connection(gmcf->connection);
+        gmcf->connection = NULL;
     }
 
     if (storage->allocator->nomemory)
@@ -2664,11 +2544,11 @@ ngx_http_graphite_timer_handler(ngx_event_t *ev) {
             ngx_uint_t i;
             for (i = 0; i < gmcf->intervals->nelts; i++) {
                 const ngx_http_graphite_interval_t *interval = &((ngx_http_graphite_interval_t*)gmcf->intervals->elts)[i];
-                b = ngx_http_graphite_print_metric(gmcf, storage, m, interval, ts, b, gmcf->buffer_size - (b - buffer));
+                b = ngx_http_graphite_print_metric(gmcf, storage, m, interval, ts, b, gmcf->buffer_size - (b - buffer->start));
             }
         }
         else
-            b = ngx_http_graphite_print_metric(gmcf, storage, m, &param->interval, ts, b, gmcf->buffer_size - (b - buffer));
+            b = ngx_http_graphite_print_metric(gmcf, storage, m, &param->interval, ts, b, gmcf->buffer_size - (b - buffer->start));
     }
 
     ngx_uint_t s;
@@ -2676,24 +2556,27 @@ ngx_http_graphite_timer_handler(ngx_event_t *ev) {
         const ngx_http_graphite_statistic_t *statistic = &(((ngx_http_graphite_statistic_t*)storage->statistics->elts)[s]);
         const ngx_http_graphite_param_t *param = &((ngx_http_graphite_param_t*)storage->params->elts)[statistic->param];
 
-        b = ngx_http_graphite_print_statistic(gmcf, storage, s, ts, b, gmcf->buffer_size - (b - buffer));
+        b = ngx_http_graphite_print_statistic(gmcf, storage, s, ts, b, gmcf->buffer_size - (b - buffer->start));
 
         ngx_http_graphite_stt_t *stt = statistic->stt;
         ngx_http_graphite_statistic_init(stt, param->percentile);
     }
+	*b = '\0';
 
     ngx_shmtx_unlock(&shpool->mutex);
 
-    if (b == buffer + gmcf->buffer_size) {
+    if (b == buffer->start + gmcf->buffer_size) {
         ngx_log_error(NGX_LOG_ALERT, ev->log, 0, "graphite buffer size is too small");
         if (!(ngx_quit || ngx_terminate || ngx_exiting))
             ngx_add_timer(ev, gmcf->frequency);
         return;
     }
-    *b = '\0';
 
-    if (b != buffer)
-        ngx_http_graphite_send_buffer(gmcf, ev->log, buffer);
+    if (b != buffer->start) {
+        buffer->pos = buffer->start;
+        buffer->last = b;
+        ngx_http_graphite_net_send_buffer(gmcf, ev->log);
+    }
 
     if (!(ngx_quit || ngx_terminate || ngx_exiting))
         ngx_add_timer(ev, gmcf->frequency);
