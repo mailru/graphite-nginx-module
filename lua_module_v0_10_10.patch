@@ -23,54 +23,36 @@ new file mode 100644
 index 00000000..e959199b
 --- /dev/null
 +++ b/src/ngx_http_lua_graphite.c
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,51 @@
 +#ifndef DDEBUG
 +#define DDEBUG 0
 +#endif
 +#include "ddebug.h"
 +
 +
++#include "ngx_http_graphite_module.h"
 +#include "ngx_http_lua_graphite.h"
 +#include "ngx_http_lua_util.h"
 +
 +
-+typedef ngx_int_t (*ngx_http_graphite_custom_pt)(ngx_http_request_t*, ngx_str_t*, double);
-+
-+
-+static ngx_http_graphite_custom_pt custom_pt = NULL;
-+static int ngx_http_lua_graphite_custom(lua_State *L);
++static int ngx_http_lua_graphite(lua_State *L);
 +
 +
 +void
 +ngx_http_lua_inject_graphite_api(lua_State *L)
 +{
-+    ngx_str_t name = ngx_string("graphite_custom");
-+
-+    int i;
-+    for (i = 0; ngx_modules[i]; i++) {
-+
-+        ngx_module_t *module = ngx_modules[i];
-+        if (module->type != NGX_HTTP_MODULE)
-+            continue;
-+
-+        ngx_command_t *cmd = module->commands;
-+        if (cmd == NULL)
-+            continue;
-+
-+        for (; cmd->name.len; cmd++) {
-+            if ((cmd->name.len == name.len) && (ngx_strncmp(cmd->name.data, name.data, name.len) == 0)) {
-+                custom_pt = cmd->post;
-+            }
-+        }
-+    }
-+
-+    lua_pushcfunction(L, ngx_http_lua_graphite_custom);
++    lua_pushcfunction(L, ngx_http_lua_graphite);
 +    lua_setfield(L, -2, "graphite");
 +}
 +
 +
 +static int
-+ngx_http_lua_graphite_custom(lua_State *L) {
++ngx_http_lua_graphite(lua_State *L) {
++
++    size_t n = lua_gettop(L);
++    if (n != 2 && n != 3) {
++        return luaL_error(L, "ngx.graphite expecting 2 or 3 arguments got %d", n);
++    }
 +
 +    ngx_http_request_t *r;
 +    r = ngx_http_lua_get_req(L);
@@ -79,17 +61,17 @@ index 00000000..e959199b
 +        return luaL_error(L, "no request object found");
 +    }
 +
-+    double value = lua_tonumber(L, -1);
-+    lua_pop(L, 1);
-+
 +    ngx_str_t name;
-+    name.data = (u_char*)lua_tolstring(L, -1, &name.len);
++    name.data = (u_char*)lua_tolstring(L, 1, &name.len);
 +    if (name.data == NULL)
 +        return 0;
-+    lua_pop(L, 1);
 +
-+    if (custom_pt)
-+        custom_pt(r, &name, value);
++    double value = lua_tonumber(L, 2);
++    const char *config = NULL;
++    if (n == 3)
++        config = lua_tostring(L, 3);
++
++    ngx_http_graphite(r, &name, value, config);
 +
 +    return 0;
 +}
@@ -139,14 +121,16 @@ index c7bee3e8..9379ccee 100644
  
      ngx_http_lua_inject_misc_api(L);
  
-@@ -1003,7 +1005,14 @@ ngx_http_lua_run_thread(lua_State *L, ngx_http_request_t *r,
+@@ -1003,7 +1005,16 @@ ngx_http_lua_run_thread(lua_State *L, ngx_http_request_t *r,
              ngx_http_lua_assert(orig_coctx->co_top + nrets
                                  == lua_gettop(orig_coctx->co));
  
 +#ifdef NGX_GRAPHITE_PATCH
 +            struct timeval start_tp;
 +            ngx_gettimeofday(&start_tp);
++#endif
              rv = lua_resume(orig_coctx->co, nrets);
++#ifdef NGX_GRAPHITE_PATCH
 +            struct timeval stop_tp;
 +            ngx_gettimeofday(&stop_tp);
 +            r->lua_time += (stop_tp.tv_sec - start_tp.tv_sec) * 1000 + (stop_tp.tv_usec - start_tp.tv_usec) / 1000;
