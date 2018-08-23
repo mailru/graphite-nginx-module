@@ -16,7 +16,7 @@ Features
 Version
 =======
 
-This document describes graphite-nginx-module [v1.3.0](https://github.com/mailru/graphite-nginx-module/tags) released on 31 March 2017.
+This document describes graphite-nginx-module [v2.3.0](https://github.com/mailru/graphite-nginx-module/tags) released on 21 August 2018.
 
 Synopsis
 ========
@@ -199,7 +199,7 @@ location /foo/ {
         ngx.graphite("lua.foo_sum", 0.01)
         ngx.graphite("lua.foo_rps", 1)
         ngx.graphite("lua.foo_avg", ngx.var.request_uri:len())
-		ngx.graphite("lua.auto_rps", 1, "aggregate=persec interval=1m percentile=50|90|99")
+        ngx.graphite("lua.auto_rps", 1, "aggregate=persec interval=1m percentile=50|90|99")
         ngx.say("hello")
     ';
 }
@@ -247,8 +247,8 @@ Installation
 ============
 
 #### Requirements
-* nginx: 1.2.0 - 1.10.x
-* lua-nginx-module: 0.8.6 - 0.10.2 (optional)
+* nginx: 1.2.0 - 1.14.x
+* lua-nginx-module: 0.8.6 - 0.10.13 (optional)
 
 #### Build nginx with graphite module
 ```bash
@@ -310,7 +310,7 @@ Instructions on installing lua-nginx-module can be found in [documentation on lu
 License
 =======
 
-Copyright (c) 2013-2017, Mail.Ru Ltd.
+Copyright (c) 2013-2018, Mail.Ru Ltd.
 
 This module is licensed under the terms of the BSD license.
 
