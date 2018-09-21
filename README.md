@@ -140,7 +140,7 @@ Example:
     map $scheme $is_http { http 1; }
     map $scheme $is_https { https 1; }
 
-	...
+    ...
 
     location /bar/ {
         graphite_data nginx.all.bar;
@@ -170,6 +170,7 @@ func   | Description
 sum    | sum of values per interval
 persec | sum of values per second  (`sum` devided on seconds in `interval`)
 avg    | average value on interval
+gauge  | gauge value
 
 Example: see below.
 
@@ -194,11 +195,14 @@ location /foo/ {
     graphite_param name=lua.foo_sum aggregate=sum interval=1m;
     graphite_param name=lua.foo_rps aggregate=persec interval=1m;
     graphite_param name=lua.foo_avg aggregate=avg interval=1m;
+    graphite_param name=lua.foo_gauge aggregate=gauge;
 
     content_by_lua '
         ngx.graphite("lua.foo_sum", 0.01)
         ngx.graphite("lua.foo_rps", 1)
         ngx.graphite("lua.foo_avg", ngx.var.request_uri:len())
+        ngx.graphite("lua.foo_gauge", 10)
+        ngx.graphite("lua.foo_gauge", -2)
         ngx.graphite("lua.auto_rps", 1, "aggregate=persec interval=1m percentile=50|90|99")
         ngx.say("hello")
     ';
@@ -211,6 +215,14 @@ If you choose the second option, the data for this graph will not be sent until 
 **Warning:**
 If you do not declare graph using `graphite_param` command then memory for the graph will be allocated dynamically in module's shared memory.
 If module's shared memory is exhausted while nginx is running, no new graphs will be created and an error message will be logged.
+
+**syntax:** *ngx.graphite.get(&lt;name&gt;)*
+
+Get value of the gauge param with specified `name`.
+
+**syntax:** *ngx.graphite.set(&lt;name&gt;,&lt;value&gt;)*
+
+Set `value` to the gauge param with specified `name`.
 
 Params
 ======
