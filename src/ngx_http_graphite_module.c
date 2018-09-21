@@ -202,38 +202,44 @@ typedef struct ngx_http_graphite_interval_s {
     ngx_uint_t value;
 } ngx_http_graphite_interval_t;
 
-typedef struct ngx_http_graphite_acc_s {
+typedef struct ngx_http_graphite_metric_data_s {
     double value;
     ngx_uint_t count;
-} ngx_http_graphite_acc_t;
+} ngx_http_graphite_metric_data_t;
+
+typedef struct ngx_http_graphite_gauge_data_s {
+    double value;
+} ngx_http_graphite_gauge_data_t;
 
 #define P2_METRIC_COUNT 5
 
-typedef struct ngx_http_graphite_stt_s {
+typedef struct ngx_http_graphite_statistic_data_s {
     double q[P2_METRIC_COUNT];
     double dn[P2_METRIC_COUNT];
     double np[P2_METRIC_COUNT];
     ngx_int_t n[P2_METRIC_COUNT];
     ngx_uint_t count;
-} ngx_http_graphite_stt_t;
+} ngx_http_graphite_statistic_data_t;
 
-typedef double (*ngx_http_graphite_aggregate_pt)(const ngx_http_graphite_interval_t*, const ngx_http_graphite_acc_t*);
+typedef double (*ngx_http_graphite_aggregate_pt)(const ngx_http_graphite_interval_t*, const void*);
 
-static double ngx_http_graphite_aggregate_avg(const ngx_http_graphite_interval_t *interval, const ngx_http_graphite_acc_t *acc);
-static double ngx_http_graphite_aggregate_persec(const ngx_http_graphite_interval_t *interval, const ngx_http_graphite_acc_t *acc);
-static double ngx_http_graphite_aggregate_sum(const ngx_http_graphite_interval_t *interval, const ngx_http_graphite_acc_t *acc);
+static double ngx_http_graphite_aggregate_avg(const ngx_http_graphite_interval_t *interval, const void *data);
+static double ngx_http_graphite_aggregate_persec(const ngx_http_graphite_interval_t *interval, const void *data);
+static double ngx_http_graphite_aggregate_sum(const ngx_http_graphite_interval_t *interval, const void *data);
+static double ngx_http_graphite_aggregate_gauge(const ngx_http_graphite_interval_t *interval, const void *data);
 
 typedef struct ngx_http_graphite_aggregate_s {
     ngx_str_t name;
     ngx_http_graphite_aggregate_pt get;
 } ngx_http_graphite_aggregate_t;
 
-#define AGGREGATE_COUNT 3
+#define AGGREGATE_COUNT 4
 
 static const ngx_http_graphite_aggregate_t ngx_http_graphite_aggregates[AGGREGATE_COUNT] = {
     { ngx_string("avg"), ngx_http_graphite_aggregate_avg },
     { ngx_string("persec"), ngx_http_graphite_aggregate_persec },
     { ngx_string("sum"), ngx_http_graphite_aggregate_sum },
+    { ngx_string("gauge"), ngx_http_graphite_aggregate_gauge },
 };
 
 struct ngx_http_graphite_source_s;
@@ -309,17 +315,24 @@ typedef struct ngx_http_graphite_param_s {
 typedef struct ngx_http_graphite_metric_s {
     ngx_uint_t split;
     ngx_uint_t param;
-    ngx_http_graphite_acc_t *acc;
+    ngx_http_graphite_metric_data_t *data;
 } ngx_http_graphite_metric_t;
+
+typedef struct ngx_http_graphite_gauge_s {
+    ngx_uint_t split;
+    ngx_uint_t param;
+    ngx_http_graphite_gauge_data_t *data;
+} ngx_http_graphite_gauge_t;
 
 typedef struct ngx_http_graphite_statistic_s {
     ngx_uint_t split;
     ngx_uint_t param;
-    ngx_http_graphite_stt_t *stt;
+    ngx_http_graphite_statistic_data_t *data;
 } ngx_http_graphite_statistic_t;
 
 typedef struct ngx_http_graphite_data_s {
     ngx_http_graphite_array_t *metrics;
+    ngx_http_graphite_array_t *gauges;
     ngx_http_graphite_array_t *statistics;
     ngx_http_complex_value_t *filter;
 } ngx_http_graphite_data_t;
@@ -474,9 +487,10 @@ ngx_http_graphite_create_main_conf(ngx_conf_t *cf) {
     gmcf->storage->params = ngx_http_graphite_array_create(allocator, 1, sizeof(ngx_http_graphite_param_t));
     gmcf->storage->internals = ngx_http_graphite_array_create(allocator, 1, sizeof(ngx_http_graphite_internal_t));
     gmcf->storage->metrics = ngx_http_graphite_array_create(allocator, 1, sizeof(ngx_http_graphite_metric_t));
+    gmcf->storage->gauges = ngx_http_graphite_array_create(allocator, 1, sizeof(ngx_http_graphite_gauge_t));
     gmcf->storage->statistics = ngx_http_graphite_array_create(allocator, 1, sizeof(ngx_http_graphite_statistic_t));
 
-    if (gmcf->storage->params == NULL || gmcf->storage->internals == NULL || gmcf->storage->metrics == NULL || gmcf->storage->statistics == NULL) {
+    if (gmcf->storage->params == NULL || gmcf->storage->internals == NULL || gmcf->storage->metrics == NULL || gmcf->storage->gauges == NULL || gmcf->storage->statistics == NULL) {
         ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't alloc memory");
         return NULL;
     }
@@ -676,14 +690,14 @@ ngx_http_graphite_parse_args(ngx_http_graphite_context_t *context, const ngx_arr
     for (i = 1; i < vars->nelts; i++) {
         ngx_str_t *var = &((ngx_str_t*)vars->elts)[i];
 
-        ngx_uint_t find = 0;
+        ngx_uint_t found = 0;
         ngx_uint_t j;
         for (j = 0; j < args_count; j++) {
             const ngx_http_graphite_arg_t *arg = &args[j];
 
             if (!ngx_strncmp(arg->name.data, var->data, arg->name.len) && var->data[arg->name.len] == '=') {
                 isset[j] = 1;
-                find = 1;
+                found = 1;
                 ngx_str_t value;
                 value.data = var->data + arg->name.len + 1;
                 value.len = var->len - (arg->name.len + 1);
@@ -694,7 +708,7 @@ ngx_http_graphite_parse_args(ngx_http_graphite_context_t *context, const ngx_arr
             }
         }
 
-        if (!find) {
+        if (!found) {
             ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite unknown option %V", var);
             return NGX_CONF_ERROR;
         }
@@ -722,8 +736,9 @@ ngx_http_graphite_init_data(ngx_http_graphite_context_t *context, ngx_http_graph
     ngx_http_graphite_allocator_t *allocator = context->storage->allocator;
 
     data->metrics = ngx_http_graphite_array_create(allocator, 1, sizeof(ngx_uint_t));
+    data->gauges = ngx_http_graphite_array_create(allocator, 1, sizeof(ngx_uint_t));
     data->statistics = ngx_http_graphite_array_create(allocator, 1, sizeof(ngx_uint_t));
-    if (data->metrics == NULL || data->statistics == NULL) {
+    if (data->metrics == NULL || data->gauges == NULL || data->statistics == NULL) {
         ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite can't alloc memory");
         return NGX_ERROR;
     }
@@ -772,7 +787,7 @@ ngx_http_graphite_add_param_to_data(ngx_http_graphite_context_t *context, ngx_ui
 
     ngx_http_graphite_param_t *p = &((ngx_http_graphite_param_t*)storage->params->elts)[param];
 
-    if (p->percentile == 0) {
+    if (p->percentile == 0 && p->aggregate != ngx_http_graphite_aggregate_gauge) {
         ngx_uint_t i;
         for (i = 0; i < storage->metrics->nelts; i++) {
             ngx_http_graphite_metric_t *metric = &((ngx_http_graphite_metric_t*)storage->metrics->elts)[i];
@@ -790,15 +805,15 @@ ngx_http_graphite_add_param_to_data(ngx_http_graphite_context_t *context, ngx_ui
             metric->split = split;
             metric->param = param;
             if (context->phase == PHASE_REQUEST) {
-                metric->acc = ngx_http_graphite_allocator_alloc(storage->allocator, sizeof(ngx_http_graphite_acc_t) * (storage->max_interval + 1));
-                if (metric->acc == NULL) {
+                metric->data = ngx_http_graphite_allocator_alloc(storage->allocator, sizeof(ngx_http_graphite_metric_data_t) * (storage->max_interval + 1));
+                if (metric->data == NULL) {
                     ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite can't alloc memory");
                     return NGX_CONF_ERROR;
                 }
-                ngx_memzero(metric->acc, sizeof(ngx_http_graphite_acc_t) * (storage->max_interval + 1));
+                ngx_memzero(metric->data, sizeof(ngx_http_graphite_metric_data_t) * (storage->max_interval + 1));
             }
             else
-                metric->acc = NULL;
+                metric->data = NULL;
         }
 
         ngx_uint_t *m = ngx_http_graphite_array_push(data->metrics);
@@ -808,9 +823,45 @@ ngx_http_graphite_add_param_to_data(ngx_http_graphite_context_t *context, ngx_ui
         }
 
         *m = i;
-
     }
-    else {
+    else if (p->aggregate == ngx_http_graphite_aggregate_gauge) {
+        ngx_uint_t i;
+        for (i = 0; i < storage->gauges->nelts; i++) {
+            ngx_http_graphite_gauge_t *gauge = &((ngx_http_graphite_gauge_t*)storage->gauges->elts)[i];
+            if (gauge->split == split && gauge->param == param)
+                break;
+        }
+
+        if (i == storage->gauges->nelts) {
+            ngx_http_graphite_gauge_t *gauge = ngx_http_graphite_array_push(storage->gauges);
+            if (!gauge) {
+                ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite can't alloc memory");
+                return NGX_CONF_ERROR;
+            }
+
+            gauge->split = split;
+            gauge->param = param;
+            if (context->phase == PHASE_REQUEST) {
+                gauge->data = ngx_http_graphite_allocator_alloc(storage->allocator, sizeof(ngx_http_graphite_gauge_data_t));
+                if (gauge->data == NULL) {
+                    ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite can't alloc memory");
+                    return NGX_CONF_ERROR;
+                }
+                ngx_memzero(gauge->data, sizeof(ngx_http_graphite_gauge_data_t));
+            }
+            else
+                gauge->data = NULL;
+        }
+
+        ngx_uint_t *g = ngx_http_graphite_array_push(data->gauges);
+        if (!g) {
+            ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite can't alloc memory");
+            return NGX_CONF_ERROR;
+        }
+
+        *g = i;
+    }
+    else if (p->percentile != 0) {
         ngx_uint_t i;
         for (i = 0; i < storage->statistics->nelts; i++) {
             ngx_http_graphite_statistic_t *statistic = &((ngx_http_graphite_statistic_t*)storage->statistics->elts)[i];
@@ -828,15 +879,15 @@ ngx_http_graphite_add_param_to_data(ngx_http_graphite_context_t *context, ngx_ui
             statistic->split = split;
             statistic->param = param;
             if (context->phase == PHASE_REQUEST) {
-                statistic->stt = ngx_http_graphite_allocator_alloc(storage->allocator, sizeof(ngx_http_graphite_stt_t));
-                if (statistic->stt == NULL) {
+                statistic->data = ngx_http_graphite_allocator_alloc(storage->allocator, sizeof(ngx_http_graphite_statistic_data_t));
+                if (statistic->data == NULL) {
                     ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite can't alloc memory");
                     return NGX_CONF_ERROR;
                 }
-                ngx_memzero(statistic->stt, sizeof(ngx_http_graphite_stt_t));
+                ngx_memzero(statistic->data, sizeof(ngx_http_graphite_statistic_data_t));
             }
             else
-                statistic->stt = NULL;
+                statistic->data = NULL;
         }
 
         ngx_uint_t *s = ngx_http_graphite_array_push(data->statistics);
@@ -846,6 +897,10 @@ ngx_http_graphite_add_param_to_data(ngx_http_graphite_context_t *context, ngx_ui
         }
 
         *s = i;
+    }
+    else {
+        ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite unknown error");
+        return NGX_CONF_ERROR;
     }
 
     return NGX_CONF_OK;
@@ -1235,14 +1290,24 @@ ngx_http_graphite_parse_param_args(ngx_http_graphite_context_t *context, const n
         ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite param name not set");
     }
 
-    if (r == NGX_OK && (((param->aggregate && !param->interval.value)) || ((!param->aggregate && param->interval.value)))) {
+    if (r == NGX_OK && (param->aggregate && param->aggregate != ngx_http_graphite_aggregate_gauge && !param->interval.value)) {
         r = NGX_ERROR;
-        ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite param must contain aggregate with interval");
+        ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite param must contain interval with aggregate avg, persec or sum");
+    }
+
+    if (r == NGX_OK && ((!param->aggregate || param->aggregate == ngx_http_graphite_aggregate_gauge) && param->interval.value)) {
+        r = NGX_ERROR;
+        ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite param must contain aggregate avg, persec or sum with interval or aggregate gauge");
+    }
+
+    if (r == NGX_OK && (param->aggregate == ngx_http_graphite_aggregate_gauge && param->percentiles->nelts != 0)) {
+        r = NGX_ERROR;
+        ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite param must contain aggregate gauge or percentile only");
     }
 
     if (r == NGX_OK && (!param->aggregate && !param->interval.value && param->percentiles->nelts == 0)) {
         r = NGX_ERROR;
-        ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite param must contain aggregate and interval or percentile");
+        ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite param must contain aggregate avg, perse or sum and interval, aggregate gauge or percentile");
     }
 
     if (r == NGX_OK && (param->interval.value > context->storage->max_interval)) {
@@ -1280,7 +1345,7 @@ ngx_http_graphite_add_internal(ngx_http_graphite_context_t *context, const ngx_h
     size_t n;
     for (n = 0; n < param->percentiles->nelts + 1; n++) {
         if (n == 0) {
-            if (!new_param.interval.value || !new_param.aggregate)
+            if (!new_param.aggregate)
                 continue;
         }
         else
@@ -1492,16 +1557,16 @@ ngx_http_graphite_param_arg_aggregate(ngx_http_graphite_context_t *context, void
 
     ngx_http_graphite_param_t *param = (ngx_http_graphite_param_t*)data;
 
-    ngx_uint_t find = 0;
+    ngx_uint_t found = 0;
     ngx_uint_t a;
     for (a = 0; a < AGGREGATE_COUNT; a++) {
         if ((ngx_http_graphite_aggregates[a].name.len == value->len) && !ngx_strncmp(ngx_http_graphite_aggregates[a].name.data, value->data, value->len)) {
-            find = 1;
+            found = 1;
             param->aggregate = ngx_http_graphite_aggregates[a].get;
         }
     }
 
-    if (!find) {
+    if (!found) {
         ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite param unknow aggregate %V", value);
         return NGX_CONF_ERROR;
     }
@@ -1982,18 +2047,18 @@ ngx_http_graphite_template_compile(ngx_http_graphite_context_t *context, ngx_arr
                     arg->variable = 0;
                 }
                 else if (state == TEMPLATE_STATE_VAR_START || state == TEMPLATE_STATE_BRACKET_VAR_START) {
-                    ngx_uint_t find = 0;
+                    ngx_uint_t found = 0;
                     size_t a;
                     for (a = 0; a < nargs; a++) {
                         if ((args[a].name.len == i - s) && !ngx_strncmp(args[a].name.data, &value->data[s], i - s)) {
-                            find = 1;
+                            found = 1;
                             arg->variable = args[a].variable;
                             arg->data.data = NULL;
                             arg->data.len = 0;
                         }
                     }
 
-                    if (!find) {
+                    if (!found) {
                         ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite unknow template arg %*s", i - s, &value->data[s]);
                         return NGX_CONF_ERROR;
                     }
@@ -2066,24 +2131,24 @@ ngx_http_graphite_complex_compile(ngx_conf_t *cf, ngx_str_t *value) {
 }
 
 static void
-ngx_http_graphite_statistic_init(ngx_http_graphite_stt_t *stt, ngx_uint_t percentile) {
+ngx_http_graphite_statistic_init(ngx_http_graphite_statistic_data_t *data, ngx_uint_t percentile) {
 
-    ngx_memzero(stt, sizeof(ngx_http_graphite_stt_t));
+    ngx_memzero(data, sizeof(ngx_http_graphite_statistic_data_t));
 
     double p = (double)percentile / 100;
 
-    stt->dn[P2_METRIC_COUNT - 1] = 1;
-    stt->dn[P2_METRIC_COUNT / 2] = p;
+    data->dn[P2_METRIC_COUNT - 1] = 1;
+    data->dn[P2_METRIC_COUNT / 2] = p;
 
     size_t i;
     for (i = 1; i < P2_METRIC_COUNT / 2; i++)
-        stt->dn[i] = (p / (P2_METRIC_COUNT / 2)) * i;
+        data->dn[i] = (p / (P2_METRIC_COUNT / 2)) * i;
     for (i = P2_METRIC_COUNT / 2 + 1; i < P2_METRIC_COUNT - 1; i++)
-        stt->dn[i] = p + ((1 - p) / (P2_METRIC_COUNT - 1 - P2_METRIC_COUNT / 2)) * (i - P2_METRIC_COUNT / 2);
+        data->dn[i] = p + ((1 - p) / (P2_METRIC_COUNT - 1 - P2_METRIC_COUNT / 2)) * (i - P2_METRIC_COUNT / 2);
 
     for (i = 0; i < P2_METRIC_COUNT; i++) {
-        stt->np[i] = (P2_METRIC_COUNT - 1) * stt->dn[i] + 1;
-        stt->n[i] = i + 1;
+        data->np[i] = (P2_METRIC_COUNT - 1) * data->dn[i] + 1;
+        data->n[i] = i + 1;
     }
 }
 
@@ -2103,11 +2168,13 @@ ngx_http_graphite_shared_init(ngx_shm_zone_t *shm_zone, void *data)
         sizeof(ngx_http_graphite_storage_t) +
         sizeof(ngx_array_t) * 4 +
         sizeof(ngx_http_graphite_metric_t) * (gmcf->storage->metrics->nelts) +
+        sizeof(ngx_http_graphite_gauge_t) * (gmcf->storage->gauges->nelts) +
         sizeof(ngx_http_graphite_statistic_t) * (gmcf->storage->statistics->nelts) +
         sizeof(ngx_http_graphite_param_t) * (gmcf->storage->params->nelts) +
         sizeof(ngx_http_graphite_internal_t) * (gmcf->storage->internals->nelts) +
-        sizeof(ngx_http_graphite_acc_t) * (gmcf->storage->max_interval + 1) * gmcf->storage->metrics->nelts +
-        sizeof(ngx_http_graphite_stt_t) * gmcf->storage->statistics->nelts);
+        sizeof(ngx_http_graphite_metric_data_t) * (gmcf->storage->max_interval + 1) * gmcf->storage->metrics->nelts +
+        sizeof(ngx_http_graphite_gauge_data_t) * gmcf->storage->gauges->nelts +
+        sizeof(ngx_http_graphite_statistic_data_t) * gmcf->storage->statistics->nelts);
 
     if (shared_required_size > shm_zone->shm.size) {
         ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "graphite too small shared memory (minimum size is %uzb)", shared_required_size);
@@ -2115,7 +2182,7 @@ ngx_http_graphite_shared_init(ngx_shm_zone_t *shm_zone, void *data)
     }
 
     // 128 is the approximate size of the one record
-    size_t buffer_required_size = (gmcf->intervals->nelts * gmcf->storage->metrics->nelts + gmcf->storage->statistics->nelts) * 128;
+    size_t buffer_required_size = (gmcf->intervals->nelts * gmcf->storage->metrics->nelts + gmcf->storage->gauges->nelts + gmcf->storage->statistics->nelts) * 128;
     if (buffer_required_size > gmcf->buffer_size) {
         ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "graphite too small buffer size (minimum size is %uzb)", buffer_required_size);
         return NGX_ERROR;
@@ -2154,23 +2221,30 @@ ngx_http_graphite_shared_init(ngx_shm_zone_t *shm_zone, void *data)
 
     storage->allocator = allocator;
     storage->metrics = ngx_http_graphite_array_copy(storage->allocator, gmcf->storage->metrics);
+    storage->gauges = ngx_http_graphite_array_copy(storage->allocator, gmcf->storage->gauges);
     storage->statistics = ngx_http_graphite_array_copy(storage->allocator, gmcf->storage->statistics);
     storage->params = ngx_http_graphite_array_copy(storage->allocator, gmcf->storage->params);
     storage->internals = ngx_http_graphite_array_copy(storage->allocator, gmcf->storage->internals);
 
-    if (storage->metrics == NULL || storage->statistics == NULL || storage->params == NULL || storage->internals == NULL) {
+    if (storage->metrics == NULL || storage->gauges == NULL || storage->statistics == NULL || storage->params == NULL || storage->internals == NULL) {
         ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "graphite can't slab alloc in shared memory");
         return NGX_ERROR;
     }
 
-    u_char *accs = ngx_slab_calloc(shpool, sizeof(ngx_http_graphite_acc_t) * (gmcf->storage->max_interval + 1) * gmcf->storage->metrics->nelts);
-    if (accs == NULL) {
+    u_char *metric_datas = ngx_slab_calloc(shpool, sizeof(ngx_http_graphite_metric_data_t) * (gmcf->storage->max_interval + 1) * gmcf->storage->metrics->nelts);
+    if (metric_datas == NULL) {
         ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "graphite can't slab alloc in shared memory");
         return NGX_ERROR;
     }
 
-    u_char *stts = ngx_slab_calloc(shpool, sizeof(ngx_http_graphite_stt_t) * gmcf->storage->statistics->nelts);
-    if (stts == NULL) {
+    u_char *gauge_datas = ngx_slab_calloc(shpool, sizeof(ngx_http_graphite_gauge_data_t) * gmcf->storage->gauges->nelts);
+    if (gauge_datas == NULL) {
+        ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "graphite can't slab alloc in shared memory");
+        return NGX_ERROR;
+    }
+
+    u_char *statistic_datas = ngx_slab_calloc(shpool, sizeof(ngx_http_graphite_statistic_data_t) * gmcf->storage->statistics->nelts);
+    if (statistic_datas == NULL) {
         ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0, "graphite can't slab alloc in shared memory");
         return NGX_ERROR;
     }
@@ -2178,15 +2252,21 @@ ngx_http_graphite_shared_init(ngx_shm_zone_t *shm_zone, void *data)
     ngx_uint_t m;
     for (m = 0; m < storage->metrics->nelts; m++) {
         ngx_http_graphite_metric_t *metric = &(((ngx_http_graphite_metric_t*)storage->metrics->elts)[m]);
-        metric->acc = (ngx_http_graphite_acc_t*)(accs + sizeof(ngx_http_graphite_acc_t) * (gmcf->storage->max_interval + 1) * m);
+        metric->data = (ngx_http_graphite_metric_data_t*)(metric_datas + sizeof(ngx_http_graphite_metric_data_t) * (gmcf->storage->max_interval + 1) * m);
+    }
+
+    ngx_uint_t g;
+    for (g = 0; g < storage->gauges->nelts; g++) {
+        ngx_http_graphite_gauge_t *gauge = &(((ngx_http_graphite_gauge_t*)storage->gauges->elts)[g]);
+        gauge->data = (ngx_http_graphite_gauge_data_t*)(gauge_datas + sizeof(ngx_http_graphite_gauge_data_t) * g);
     }
 
     ngx_uint_t s;
     for (s = 0; s < storage->statistics->nelts; s++) {
         ngx_http_graphite_statistic_t *statistic = &(((ngx_http_graphite_statistic_t*)storage->statistics->elts)[s]);
         ngx_http_graphite_param_t *param = &((ngx_http_graphite_param_t*)gmcf->storage->params)[statistic->param];
-        statistic->stt = (ngx_http_graphite_stt_t*)(stts + sizeof(ngx_http_graphite_stt_t) * s);
-        ngx_http_graphite_statistic_init(statistic->stt, param->percentile);
+        statistic->data = (ngx_http_graphite_statistic_data_t*)(statistic_datas + sizeof(ngx_http_graphite_statistic_data_t) * s);
+        ngx_http_graphite_statistic_init(statistic->data, param->percentile);
     }
 
     return NGX_OK;
@@ -2214,62 +2294,70 @@ static void
 ngx_http_graphite_add_metric(ngx_http_request_t *r, ngx_http_graphite_storage_t *storage, ngx_http_graphite_metric_t *metric, time_t ts, double value) {
 
     ngx_uint_t a = ((ts - storage->start_time) % (storage->max_interval + 1));
-    ngx_http_graphite_acc_t *acc = &metric->acc[a];
+    ngx_http_graphite_metric_data_t *data = &metric->data[a];
 
-    acc->count++;
-    acc->value += value;
+    data->count++;
+    data->value += value;
+}
+
+static void
+ngx_http_graphite_add_gauge(ngx_http_request_t *r, ngx_http_graphite_storage_t *storage, ngx_http_graphite_gauge_t *gauge, time_t ts, double value) {
+
+    ngx_http_graphite_gauge_data_t *data = gauge->data;
+
+    data->value += value;
 }
 
 static void
 ngx_http_graphite_add_statistic(ngx_http_request_t *r, ngx_http_graphite_storage_t *storage, ngx_http_graphite_statistic_t *statistic, time_t ts, double value, ngx_uint_t percentile) {
 
-    ngx_http_graphite_stt_t *stt = statistic->stt;
+    ngx_http_graphite_statistic_data_t *data = statistic->data;
 
-    if (stt->count >= P2_METRIC_COUNT) {
+    if (data->count >= P2_METRIC_COUNT) {
 
         size_t k;
         for (k = 0; k < P2_METRIC_COUNT; k++) {
-            if (value < stt->q[k])
+            if (value < data->q[k])
                 break;
         }
         if (k == 0) {
             k = 1;
-            stt->q[0] = value;
+            data->q[0] = value;
         }
         else if (k == P2_METRIC_COUNT) {
             k = 4;
-            stt->q[P2_METRIC_COUNT - 1] = value;
+            data->q[P2_METRIC_COUNT - 1] = value;
         }
 
         size_t i;
         for (i = 0; i < P2_METRIC_COUNT; i++) {
             if (i >= k)
-                stt->n[i]++;
-            stt->np[i] += stt->dn[i];
+                data->n[i]++;
+            data->np[i] += data->dn[i];
         }
 
         for (i = 1; i < P2_METRIC_COUNT - 1; i++) {
-            double d = stt->np[i] - stt->n[i];
+            double d = data->np[i] - data->n[i];
             int s = (d >= 0.0) ? 1 : -1;
-            if((d >= 1.0 && stt->n[i + 1] - stt->n[i] > 1) || (d <= -1.0 && stt->n[i - 1] - stt->n[i] < -1)) {
-                double a = stt->q[i] + (double)s * ((stt->n[i] - stt->n[i - 1] + s) * (stt->q[i + 1] - stt->q[i]) / (stt->n[i + 1] - stt->n[i]) + (stt->n[i + 1] - stt->n[i] - s) * (stt->q[i] - stt->q[i - 1]) / (stt->n[i] - stt->n[i - 1])) / (stt->n[i + 1] - stt->n[i - 1]);
-                if (a <= stt->q[i - 1] || stt->q[i + 1] <= a)
-                    a = stt->q[i] + (double)s * (stt->q[i + s] - stt->q[i]) / (stt->n[i + s] - stt->n[i]);
-                stt->q[i] = a;
-                stt->n[i] += s;
+            if((d >= 1.0 && data->n[i + 1] - data->n[i] > 1) || (d <= -1.0 && data->n[i - 1] - data->n[i] < -1)) {
+                double a = data->q[i] + (double)s * ((data->n[i] - data->n[i - 1] + s) * (data->q[i + 1] - data->q[i]) / (data->n[i + 1] - data->n[i]) + (data->n[i + 1] - data->n[i] - s) * (data->q[i] - data->q[i - 1]) / (data->n[i] - data->n[i - 1])) / (data->n[i + 1] - data->n[i - 1]);
+                if (a <= data->q[i - 1] || data->q[i + 1] <= a)
+                    a = data->q[i] + (double)s * (data->q[i + s] - data->q[i]) / (data->n[i + s] - data->n[i]);
+                data->q[i] = a;
+                data->n[i] += s;
             }
         }
     }
     else {
         size_t i = 0;
-        for (i = 0; i < stt->count; i++) {
-            if (value < stt->q[i])
+        for (i = 0; i < data->count; i++) {
+            if (value < data->q[i])
                 break;
         }
-        if (stt->count != 0 && i < P2_METRIC_COUNT - 1)
-            memmove(&stt->q[i + 1], &stt->q[i], (stt->count - i) * sizeof(*stt->q));
-        stt->q[i] = value;
-        stt->count++;
+        if (data->count != 0 && i < P2_METRIC_COUNT - 1)
+            memmove(&data->q[i + 1], &data->q[i], (data->count - i) * sizeof(*data->q));
+        data->q[i] = value;
+        data->count++;
     }
 }
 
@@ -2293,6 +2381,14 @@ ngx_http_graphite_add_data_values(ngx_http_request_t *r, ngx_http_graphite_stora
         ngx_http_graphite_param_t *param = &((ngx_http_graphite_param_t*)storage->params->elts)[metric->param];
         double value = (param->source != SOURCE_INTERNAL) ? values[param->source] : values[0];
         ngx_http_graphite_add_metric(r, storage, metric, ts, value);
+    }
+
+    for (i = 0; i < data->gauges->nelts; i++) {
+        ngx_uint_t g = ((ngx_uint_t*)data->gauges->elts)[i];
+        ngx_http_graphite_gauge_t *gauge = &((ngx_http_graphite_gauge_t*)storage->gauges->elts)[g];
+        ngx_http_graphite_param_t *param = &((ngx_http_graphite_param_t*)storage->params->elts)[gauge->param];
+        double value = (param->source != SOURCE_INTERNAL) ? values[param->source] : values[0];
+        ngx_http_graphite_add_gauge(r, storage, gauge, ts, value);
     }
 
     for (i = 0; i < data->statistics->nelts; i++) {
@@ -2408,16 +2504,91 @@ ngx_http_graphite(ngx_http_request_t *r, const ngx_str_t *name, double value, co
     return NGX_OK;
 }
 
+double
+ngx_http_graphite_get(ngx_http_request_t *r, const ngx_str_t *name) {
+
+    ngx_http_graphite_context_t context = ngx_http_graphite_context_from_request(r);
+    ngx_http_graphite_main_conf_t *gmcf = context.gmcf;
+
+    if (!gmcf->enable)
+        return 0;
+
+    ngx_slab_pool_t *shpool = (ngx_slab_pool_t*)gmcf->shared->shm.addr;
+    ngx_http_graphite_storage_t *storage = (ngx_http_graphite_storage_t*)shpool->data;
+
+    ngx_shmtx_lock(&shpool->mutex);
+
+    ngx_int_t found = 0;
+    ngx_int_t i = ngx_http_graphite_search_param(storage->internals, name, &found);
+
+    if (!found) {
+        ngx_shmtx_unlock(&shpool->mutex);
+        return 0;
+    }
+
+    ngx_http_graphite_internal_t *internal = &((ngx_http_graphite_internal_t*)storage->internals->elts)[i];
+    ngx_http_graphite_data_t *data = &internal->data;
+    if (data->gauges->nelts) {
+        ngx_uint_t g = ((ngx_uint_t*)data->gauges->elts)[0];
+        ngx_http_graphite_gauge_t *gauge = &((ngx_http_graphite_gauge_t*)storage->gauges->elts)[g];
+        ngx_http_graphite_gauge_data_t *gauge_data = gauge->data;
+        ngx_shmtx_unlock(&shpool->mutex);
+        return gauge_data->value;
+    }
+
+    ngx_shmtx_unlock(&shpool->mutex);
+    return 0;
+}
+
+ngx_int_t
+ngx_http_graphite_set(ngx_http_request_t *r, const ngx_str_t *name, double value) {
+
+    ngx_http_graphite_context_t context = ngx_http_graphite_context_from_request(r);
+    ngx_http_graphite_main_conf_t *gmcf = context.gmcf;
+
+    if (!gmcf->enable)
+        return NGX_OK;
+
+    ngx_slab_pool_t *shpool = (ngx_slab_pool_t*)gmcf->shared->shm.addr;
+    ngx_http_graphite_storage_t *storage = (ngx_http_graphite_storage_t*)shpool->data;
+
+    ngx_shmtx_lock(&shpool->mutex);
+
+    ngx_int_t found = 0;
+    ngx_int_t i = ngx_http_graphite_search_param(storage->internals, name, &found);
+
+    if (!found) {
+        ngx_shmtx_unlock(&shpool->mutex);
+        return NGX_ERROR;
+    }
+
+    ngx_http_graphite_internal_t *internal = &((ngx_http_graphite_internal_t*)storage->internals->elts)[i];
+    ngx_http_graphite_data_t *data = &internal->data;
+    if (data->gauges->nelts) {
+        ngx_uint_t g = ((ngx_uint_t*)data->gauges->elts)[0];
+        ngx_http_graphite_gauge_t *gauge = &((ngx_http_graphite_gauge_t*)storage->gauges->elts)[g];
+        ngx_http_graphite_gauge_data_t *gauge_data = gauge->data;
+        gauge_data->value = value;
+    }
+    else {
+        ngx_shmtx_unlock(&shpool->mutex);
+        return NGX_ERROR;
+    }
+
+    ngx_shmtx_unlock(&shpool->mutex);
+    return NGX_OK;
+}
+
 static u_char*
 ngx_http_graphite_print_metric(ngx_http_graphite_main_conf_t *gmcf, ngx_http_graphite_storage_t *storage, ngx_uint_t m, const ngx_http_graphite_interval_t *interval, time_t ts, u_char *buffer, size_t buffer_size) {
 
     const ngx_http_graphite_metric_t *metric = &(((ngx_http_graphite_metric_t*)storage->metrics->elts)[m]);
     const ngx_http_graphite_param_t *param = &((ngx_http_graphite_param_t*)storage->params->elts)[metric->param];
 
-    if (metric->acc == NULL)
+    if (metric->data == NULL)
         return buffer;
 
-    ngx_http_graphite_acc_t aggregate;
+    ngx_http_graphite_metric_data_t aggregate;
     aggregate.value = 0;
     aggregate.count = 0;
 
@@ -2425,9 +2596,9 @@ ngx_http_graphite_print_metric(ngx_http_graphite_main_conf_t *gmcf, ngx_http_gra
     for (l = 0; l < interval->value; l++) {
         if ((time_t)(ts - l - 1) >= storage->start_time) {
             ngx_uint_t a = ((ts - l - 1 - storage->start_time) % (storage->max_interval + 1));
-            ngx_http_graphite_acc_t *acc = &metric->acc[a];
-            aggregate.value += acc->value;
-            aggregate.count += acc->count;
+            ngx_http_graphite_metric_data_t *data = &metric->data[a];
+            aggregate.value += data->value;
+            aggregate.count += data->count;
         }
     }
 
@@ -2459,12 +2630,34 @@ ngx_http_graphite_print_metric(ngx_http_graphite_main_conf_t *gmcf, ngx_http_gra
 }
 
 static u_char*
+ngx_http_graphite_print_gauge(ngx_http_graphite_main_conf_t *gmcf, ngx_http_graphite_storage_t *storage, ngx_uint_t g, time_t ts, u_char *buffer, size_t buffer_size) {
+
+    const ngx_http_graphite_gauge_t *gauge = &(((ngx_http_graphite_gauge_t*)storage->gauges->elts)[g]);
+    const ngx_http_graphite_param_t *param = &((ngx_http_graphite_param_t*)storage->params->elts)[gauge->param];
+
+    if (gauge->data == NULL)
+        return buffer;
+
+    double value = param->aggregate(NULL, gauge->data);
+
+    u_char *b = buffer;
+
+    if (gmcf->prefix.len)
+        b = ngx_snprintf((u_char*)b, buffer_size - (b - buffer), "%V.", &gmcf->prefix);
+    b = ngx_snprintf((u_char*)b, buffer_size - (b - buffer), "%V.%V", &gmcf->host, &param->name);
+
+    b = ngx_snprintf((u_char*)b, buffer_size - (b - buffer), " %.3f %T\n", value, ts);
+
+    return b;
+}
+
+static u_char*
 ngx_http_graphite_print_statistic(ngx_http_graphite_main_conf_t *gmcf, ngx_http_graphite_storage_t *storage, ngx_uint_t s, time_t ts, u_char *buffer, size_t buffer_size) {
 
     const ngx_http_graphite_statistic_t *statistic = &(((ngx_http_graphite_statistic_t*)storage->statistics->elts)[s]);
     const ngx_http_graphite_param_t *param = &((ngx_http_graphite_param_t*)storage->params->elts)[statistic->param];
 
-    if (statistic->stt == NULL)
+    if (statistic->data == NULL)
         return buffer;
 
     u_char p[4];
@@ -2472,7 +2665,7 @@ ngx_http_graphite_print_statistic(ngx_http_graphite_main_conf_t *gmcf, ngx_http_
     percentile.data = p;
     percentile.len = ngx_snprintf(p, sizeof(p), "p%ui", param->percentile) - p;
 
-    ngx_http_graphite_stt_t *stt = statistic->stt;
+    ngx_http_graphite_statistic_data_t *data = statistic->data;
 
     u_char *b = buffer;
 
@@ -2494,7 +2687,7 @@ ngx_http_graphite_print_statistic(ngx_http_graphite_main_conf_t *gmcf, ngx_http_
         b = ngx_snprintf((u_char*)b, buffer_size - (b - buffer), "%V.%V_%V", &gmcf->host, &param->name, &percentile);
     }
 
-    b = ngx_snprintf((u_char*)b, buffer_size - (b - buffer), " %.3f %T\n", stt->q[P2_METRIC_COUNT / 2], ts);
+    b = ngx_snprintf((u_char*)b, buffer_size - (b - buffer), " %.3f %T\n", data->q[P2_METRIC_COUNT / 2], ts);
 
     return b;
 }
@@ -2551,6 +2744,10 @@ ngx_http_graphite_timer_handler(ngx_event_t *ev) {
             b = ngx_http_graphite_print_metric(gmcf, storage, m, &param->interval, ts, b, gmcf->buffer_size - (b - buffer->start));
     }
 
+    ngx_uint_t g;
+    for (g = 0; g < storage->gauges->nelts; g++)
+        b = ngx_http_graphite_print_gauge(gmcf, storage, g, ts, b, gmcf->buffer_size - (b - buffer->start));
+
     ngx_uint_t s;
     for (s = 0; s < storage->statistics->nelts; s++) {
         const ngx_http_graphite_statistic_t *statistic = &(((ngx_http_graphite_statistic_t*)storage->statistics->elts)[s]);
@@ -2558,10 +2755,10 @@ ngx_http_graphite_timer_handler(ngx_event_t *ev) {
 
         b = ngx_http_graphite_print_statistic(gmcf, storage, s, ts, b, gmcf->buffer_size - (b - buffer->start));
 
-        ngx_http_graphite_stt_t *stt = statistic->stt;
-        ngx_http_graphite_statistic_init(stt, param->percentile);
+        ngx_http_graphite_statistic_data_t *data = statistic->data;
+        ngx_http_graphite_statistic_init(data, param->percentile);
     }
-	*b = '\0';
+    *b = '\0';
 
     ngx_shmtx_unlock(&shpool->mutex);
 
@@ -2595,10 +2792,10 @@ ngx_http_graphite_del_old_records(ngx_http_graphite_main_conf_t *gmcf, time_t ts
             ngx_http_graphite_metric_t *metric = &(((ngx_http_graphite_metric_t*)storage->metrics->elts)[m]);
 
             ngx_uint_t a = ((storage->last_time - storage->start_time) % (storage->max_interval + 1));
-            ngx_http_graphite_acc_t *acc = &metric->acc[a];
+            ngx_http_graphite_metric_data_t *data = &metric->data[a];
 
-            acc->value = 0;
-            acc->count = 0;
+            data->value = 0;
+            data->count = 0;
         }
 
         storage->last_time++;
@@ -2880,19 +3077,29 @@ ngx_http_graphite_source_lua_time(const ngx_http_graphite_source_t *source, ngx_
 #endif
 
 static double
-ngx_http_graphite_aggregate_avg(const ngx_http_graphite_interval_t *interval, const ngx_http_graphite_acc_t *acc) {
+ngx_http_graphite_aggregate_avg(const ngx_http_graphite_interval_t *interval, const void *data) {
 
-    return (acc->count != 0) ? acc->value / acc->count : 0;
+    ngx_http_graphite_metric_data_t *metric_data = (ngx_http_graphite_metric_data_t*)data;
+    return (metric_data->count != 0) ? metric_data->value / metric_data->count : 0;
 }
 
 static double
-ngx_http_graphite_aggregate_persec(const ngx_http_graphite_interval_t *interval, const ngx_http_graphite_acc_t *acc) {
+ngx_http_graphite_aggregate_persec(const ngx_http_graphite_interval_t *interval, const void *data) {
 
-    return acc->value / interval->value;
+    ngx_http_graphite_metric_data_t *metric_data = (ngx_http_graphite_metric_data_t*)data;
+    return metric_data->value / interval->value;
 }
 
 static double
-ngx_http_graphite_aggregate_sum(const ngx_http_graphite_interval_t *interval, const ngx_http_graphite_acc_t *acc) {
+ngx_http_graphite_aggregate_sum(const ngx_http_graphite_interval_t *interval, const void *data) {
 
-    return acc->value;
+    ngx_http_graphite_metric_data_t *metric_data = (ngx_http_graphite_metric_data_t*)data;
+    return metric_data->value;
+}
+
+static double
+ngx_http_graphite_aggregate_gauge(const ngx_http_graphite_interval_t *interval, const void *data) {
+
+    ngx_http_graphite_gauge_data_t *gauge_data = (ngx_http_graphite_gauge_data_t*)data;
+    return gauge_data->value;
 }

@@ -19,6 +19,7 @@ typedef struct ngx_http_graphite_storage_s {
     ngx_http_graphite_allocator_t *allocator;
 
     ngx_http_graphite_array_t *metrics;
+    ngx_http_graphite_array_t *gauges;
     ngx_http_graphite_array_t *statistics;
 
     ngx_http_graphite_array_t *params;
@@ -73,5 +74,7 @@ typedef struct {
 } ngx_http_graphite_main_conf_t;
 
 ngx_int_t ngx_http_graphite(ngx_http_request_t *r, const ngx_str_t *name, double value, const char *config);
+double ngx_http_graphite_get(ngx_http_request_t *r, const ngx_str_t *name);
+ngx_int_t ngx_http_graphite_set(ngx_http_request_t *r, const ngx_str_t *name, double value);
 
 #endif
