@@ -240,7 +240,7 @@ gzip\_time              | ms    | avg  | time spent gzipping content ob-the-fly
 upstream\_time          | ms    | avg  | time spent tailking with upstream
 upstream\_connect\_time | ms    | avg  | time spent on upstream connect (nginx >= 1.9.1)
 upstream\_header\_time  | ms    | avg  | time spent on upstream header (nginx >= 1.9.1)
-rps                     | rps   | sum  | total requests number per aggregation interval
+rps                     | rps   | sum  | total requests number per second
 keepalive\_rps          | rps   | sum  | requests number sent over previously opened keepalive connection
 response\_2xx\_rps      | rps   | sum  | total responses number with 2xx code
 response\_3xx\_rps      | rps   | sum  | total responses number with 3xx code
