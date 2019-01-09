@@ -379,14 +379,14 @@ static const ngx_http_graphite_template_arg_t ngx_http_graphite_template_args[TE
 
 typedef enum {
     TEMPLATE_VARIABLE_LOCATION,
-    TEMPLATE_VARIABLE_HOSTS,
+    TEMPLATE_VARIABLE_SERVER_NAME,
 } ngx_http_graphite_default_data_variable_t;
 
 #define DEFAULT_DATA_ARG_COUNT 2
 
 static const ngx_http_graphite_template_arg_t ngx_http_graphite_default_data_args[DEFAULT_DATA_ARG_COUNT] = {
     { ngx_string("location"), TEMPLATE_VARIABLE_LOCATION },
-    { ngx_string("host"), TEMPLATE_VARIABLE_HOSTS },
+    { ngx_string("server"), TEMPLATE_VARIABLE_SERVER_NAME },
 };
 
 #define DEFAULT_DATA_VARIABLES(location, server_name) {location, server_name}
