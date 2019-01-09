@@ -94,7 +94,7 @@ http {
 **context:** *http, server*
 
 Create measurement point in all nested locations.
-You can use "$location" variable which represents the name of the current location with all non-alphanumeric characters replaced with "\_." Leading and trailing "\_" are deleted.
+You can use "$location" or "$server_name" variables which represent the name of the current location and the name of current server with all non-alphanumeric characters replaced with "\_." Leading and trailing "\_" are deleted.
 
 Example:
 
@@ -112,6 +112,28 @@ Example:
 Data for `/foo/` will be sent to `nginx.foo`, data for `/bar/` - to `nginx.bar`.
 The `<params>` parameter (1.3.0) specifies list of params to be collected for all nested locations. To add all default params, use \*.
 The `<if>` parameter (1.1.0) enables conditional logging. A request will not be logged if the condition evaluates to "0" or an empty string.
+
+Example(with $server_name):
+```nginx
+
+    graphite_default_data nginx.$server_name.$location
+
+    server {
+        server_name foo_host;
+
+        location /foo/ {
+        }
+    }
+
+    server {
+        server_name bar_host;
+
+        location /bar/ {
+        }
+    }
+```
+
+Data for `/foo/` will be sent to `nginx.foo_host.foo`, data for `/bar/` - to `nginx.bar_host.bar`.
 
 ### graphite_data
 

@@ -36,6 +36,7 @@ static void *ngx_http_graphite_create_loc_conf(ngx_conf_t *cf);
 static char *ngx_http_graphite_merge_loc_conf(ngx_conf_t* cf, void* parent, void* child);
 
 static ngx_str_t *ngx_http_graphite_location(ngx_pool_t *pool, const ngx_str_t *uri);
+static ngx_str_t *ngx_http_graphite_server_name(ngx_pool_t *pool, ngx_conf_t* cf);
 
 #if (NGX_SSL)
 static ngx_int_t ngx_http_graphite_ssl_session_reused(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data);
@@ -46,7 +47,7 @@ static char *ngx_http_graphite_default_data(ngx_conf_t *cf, ngx_command_t *cmd, 
 static char *ngx_http_graphite_data(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 static char *ngx_http_graphite_param(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 
-static char *ngx_http_graphite_add_default_data(ngx_conf_t *cf, ngx_array_t *datas, const ngx_str_t *location, const ngx_array_t *template, const ngx_array_t *params, const ngx_http_complex_value_t *filter);
+static char *ngx_http_graphite_add_default_data(ngx_conf_t *cf, ngx_array_t *datas, const ngx_str_t *location, const ngx_str_t *server_name, const ngx_array_t *template, const ngx_array_t *params, const ngx_http_complex_value_t *filter);
 static char *ngx_http_graphite_add_data(ngx_conf_t *cf, ngx_array_t *datas, const ngx_str_t *split, const ngx_array_t *params, const ngx_http_complex_value_t *filter);
 
 typedef struct ngx_http_graphite_context_s {
@@ -378,15 +379,17 @@ static const ngx_http_graphite_template_arg_t ngx_http_graphite_template_args[TE
 
 typedef enum {
     TEMPLATE_VARIABLE_LOCATION,
+    TEMPLATE_VARIABLE_SERVER_NAME,
 } ngx_http_graphite_default_data_variable_t;
 
-#define DEFAULT_DATA_ARG_COUNT 1
+#define DEFAULT_DATA_ARG_COUNT 2
 
 static const ngx_http_graphite_template_arg_t ngx_http_graphite_default_data_args[DEFAULT_DATA_ARG_COUNT] = {
     { ngx_string("location"), TEMPLATE_VARIABLE_LOCATION },
+    { ngx_string("server"), TEMPLATE_VARIABLE_SERVER_NAME },
 };
 
-#define DEFAULT_DATA_VARIABLES(location) {location}
+#define DEFAULT_DATA_VARIABLES(location, server_name) {location, server_name}
 
 static ngx_http_complex_value_t *ngx_http_graphite_complex_compile(ngx_conf_t *cf, ngx_str_t *value);
 
@@ -548,16 +551,26 @@ ngx_http_graphite_create_loc_conf(ngx_conf_t *cf) {
 
         ngx_str_t *uri = &((ngx_str_t*)cf->args->elts)[cf->args->nelts - 1];
         ngx_str_t *location = ngx_http_graphite_location(cf->pool, uri);
+        ngx_str_t *server_name = ngx_http_graphite_server_name(cf->pool, cf);
+
+        if (server_name == NULL) {
+            return NULL;
+        }
+
+        if (server_name->len == 0) {
+            return glcf;
+        }
+
         if (location == NULL)
             return NULL;
 
         if (location->len == 0)
             return glcf;
 
-        if (ngx_http_graphite_add_default_data(cf, glcf->datas, location, gmcf->default_data_template, gmcf->default_data_params, gmcf->default_data_filter) != NGX_CONF_OK)
+        if (ngx_http_graphite_add_default_data(cf, glcf->datas, location, server_name, gmcf->default_data_template, gmcf->default_data_params, gmcf->default_data_filter) != NGX_CONF_OK)
             return NULL;
 
-        if (ngx_http_graphite_add_default_data(cf, glcf->datas, location, gscf->default_data_template, gscf->default_data_params, gscf->default_data_filter) != NGX_CONF_OK)
+        if (ngx_http_graphite_add_default_data(cf, glcf->datas, location, server_name, gscf->default_data_template, gscf->default_data_params, gscf->default_data_filter) != NGX_CONF_OK)
             return NULL;
     }
 
@@ -582,6 +595,47 @@ ngx_http_graphite_merge_loc_conf(ngx_conf_t* cf, void* parent, void* child) {
     }
 
     return NGX_CONF_OK;
+}
+
+static ngx_str_t *
+ngx_http_graphite_server_name(ngx_pool_t *pool, ngx_conf_t* cf) {
+
+    ngx_str_t *split = ngx_palloc(pool, sizeof(ngx_str_t));
+    split->len = 0;
+    if (!split)
+        return NULL;
+
+    ngx_http_core_srv_conf_t *cscf = ngx_http_conf_get_module_srv_conf(cf, ngx_http_core_module);
+    if (!cscf) {
+        return split;
+    }
+    if (!cscf->server_names.nelts) {
+        return split;
+    }
+    if (!cscf->server_names.elts) {
+        return split;
+    }
+    ngx_http_server_name_t *value;
+    value = cscf->server_names.elts;
+    ngx_str_t *server_name_old = &value[0].name;
+
+
+    split->data = ngx_palloc(pool, server_name_old->len);
+    ngx_uint_t i;
+    for (i = 0; i < server_name_old->len; ++i) {
+        if (isalnum(server_name_old->data[i]))
+            split->data[split->len++] = server_name_old->data[i];
+        else
+            split->data[split->len++] = '_';
+    }
+    while (split->len > 0 && split->data[0] == '_') {
+        split->data++;
+        split->len--;
+    }
+    while (split->len > 0 && split->data[split->len - 1] == '_')
+        split->len--;
+
+    return split;
 }
 
 static ngx_str_t *
@@ -1676,12 +1730,12 @@ ngx_http_graphite_add_split(ngx_conf_t *cf, const ngx_str_t *name) {
 }
 
 static char *
-ngx_http_graphite_add_default_data(ngx_conf_t *cf, ngx_array_t *datas, const ngx_str_t *location, const ngx_array_t *template, const ngx_array_t *params, const ngx_http_complex_value_t *filter) {
+ngx_http_graphite_add_default_data(ngx_conf_t *cf, ngx_array_t *datas, const ngx_str_t *location, const ngx_str_t *server_name, const ngx_array_t *template, const ngx_array_t *params, const ngx_http_complex_value_t *filter) {
 
     if (template->nelts == 0)
         return NGX_CONF_OK;
 
-    const ngx_str_t *variables[] = DEFAULT_DATA_VARIABLES(location);
+    const ngx_str_t *variables[] = DEFAULT_DATA_VARIABLES(location, server_name);
 
     ngx_str_t split;
     split.len = ngx_http_graphite_template_len(template, variables);
