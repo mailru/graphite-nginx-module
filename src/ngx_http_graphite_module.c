@@ -1668,8 +1668,8 @@ ngx_http_graphite_param_arg_percentile(ngx_http_graphite_context_t *context, voi
                 return NGX_CONF_ERROR;
             }
 
-            ngx_int_t p = ngx_atoi(&value->data[s], i - s);
-            if (p == NGX_ERROR || p <= 0 || p > 100) {
+            ngx_int_t p = ngx_atofp(&value->data[s], i - s, 3);
+            if (p == NGX_ERROR || p <= 0 || p > 100000) {
                 ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite param percentile is invalid");
                 return NGX_CONF_ERROR;
             }
@@ -1912,8 +1912,8 @@ ngx_http_graphite_parse_params(ngx_http_graphite_context_t *context, const ngx_s
                 ngx_http_graphite_param_t param = ngx_http_graphite_create_param(context, c);
 
                 if (q != i) {
-                    ngx_int_t percentile = ngx_atoi(&value->data[q + 1], i - q - 1);
-                    if (percentile == NGX_ERROR || percentile <= 0 || percentile > 100) {
+                    ngx_int_t percentile = ngx_atofp(&value->data[q + 1], i - q - 1, 3);
+                    if (percentile == NGX_ERROR || percentile <= 0 || percentile > 100000) {
                         ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite bad param %*s", i - s, &value->data[s]);
                         return NGX_CONF_ERROR;
                     }
@@ -2189,7 +2189,7 @@ ngx_http_graphite_statistic_init(ngx_http_graphite_statistic_data_t *data, ngx_u
 
     ngx_memzero(data, sizeof(ngx_http_graphite_statistic_data_t));
 
-    double p = (double)percentile / 100;
+    double p = (double)percentile / 100000;
 
     data->dn[P2_METRIC_COUNT - 1] = 1;
     data->dn[P2_METRIC_COUNT / 2] = p;
@@ -2714,10 +2714,15 @@ ngx_http_graphite_print_statistic(ngx_http_graphite_main_conf_t *gmcf, ngx_http_
     if (statistic->data == NULL)
         return buffer;
 
-    u_char p[4];
+    u_char p[8];
     ngx_str_t percentile;
     percentile.data = p;
-    percentile.len = ngx_snprintf(p, sizeof(p), "p%ui", param->percentile) - p;
+    percentile.len = ngx_snprintf(p, sizeof(p), "p%ui_%d", param->percentile / 1000, param->percentile % 1000) - p;
+
+    while (percentile.len && p[percentile.len - 1] == '0')
+        percentile.len--;
+    if (percentile.len && p[percentile.len - 1] == '_')
+        percentile.len--;
 
     ngx_http_graphite_statistic_data_t *data = statistic->data;
 
