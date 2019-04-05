@@ -438,7 +438,7 @@ ngx_http_graphite_process_init(ngx_cycle_t *cycle) {
 
     ngx_http_graphite_main_conf_t *gmcf = ngx_http_cycle_get_module_main_conf(cycle, ngx_http_graphite_module);
 
-    if (gmcf->enable) {
+    if (gmcf && gmcf->enable) {
 
         ngx_memzero(&timer, sizeof(timer));
         timer.handler = ngx_http_graphite_timer_handler;
