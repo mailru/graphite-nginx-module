@@ -68,7 +68,7 @@ index 287fd36..656dc75 100644
 +#if (NGX_GRAPHITE)
 +            struct timeval stop_tp;
 +            ngx_gettimeofday(&stop_tp);
-+            r->gzip_time += (stop_tp.tv_sec - start_tp.tv_sec) * 1000 + (stop_tp.tv_usec - start_tp.tv_usec) / 1000;
++            r->gzip_time += (stop_tp.tv_sec - start_tp.tv_sec) * 1000 + (stop_tp.tv_usec - start_tp.tv_usec) / 1000.0;
 +#endif
  
              if (rc == NGX_OK) {
@@ -90,7 +90,7 @@ index 7e40e78..3d7336d 100644
 +#if (NGX_GRAPHITE)
 +        struct timeval stop_tp;
 +        ngx_gettimeofday(&stop_tp);
-+        r->content_time = (stop_tp.tv_sec - start_tp.tv_sec) * 1000 + (stop_tp.tv_usec - start_tp.tv_usec) / 1000;
++        r->content_time += (stop_tp.tv_sec - start_tp.tv_sec) * 1000 + (stop_tp.tv_usec - start_tp.tv_usec) / 1000.0;
 +#endif
 +        ngx_http_finalize_request(r, rc);
          return NGX_OK;
@@ -108,15 +108,15 @@ index 283c582..68690ec 100644
 +#define NGX_GRAPHITE_PATCH
 +
 +#if (NGX_GRAPHITE)
-+    ngx_msec_int_t                    content_time;
++    double                            content_time;
 +#endif
 +
 +#if ((NGX_HTTP_GZIP) && (NGX_GRAPHITE))
-+    ngx_msec_int_t                    gzip_time;
++    double                            gzip_time;
 +#endif
 +
 +#if (NGX_GRAPHITE)
-+    ngx_msec_int_t                    lua_time;
++    double                            lua_time;
 +#endif
  };
  

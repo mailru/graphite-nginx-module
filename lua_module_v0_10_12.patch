@@ -202,7 +202,7 @@ index f7a537e..53455a6 100644
 +#ifdef NGX_GRAPHITE_PATCH
 +            struct timeval stop_tp;
 +            ngx_gettimeofday(&stop_tp);
-+            r->lua_time += (stop_tp.tv_sec - start_tp.tv_sec) * 1000 + (stop_tp.tv_usec - start_tp.tv_usec) / 1000;
++            r->lua_time += (stop_tp.tv_sec - start_tp.tv_sec) * 1000 + (stop_tp.tv_usec - start_tp.tv_usec) / 1000.0;
 +#endif
  
  #if (NGX_PCRE)
