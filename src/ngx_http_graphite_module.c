@@ -1196,10 +1196,8 @@ ngx_http_graphite_data(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
     ngx_http_graphite_srv_conf_t *gscf = ngx_http_conf_get_module_srv_conf(cf, ngx_http_graphite_module);
     ngx_http_graphite_loc_conf_t *glcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_graphite_module);
 
-    if (!gmcf->enable) {
-        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite config not set");
-        return NGX_CONF_ERROR;
-    }
+    if (!gmcf->enable)
+        return NGX_CONF_OK;
 
     ngx_str_t *args = cf->args->elts;
 
@@ -1437,10 +1435,8 @@ ngx_http_graphite_param(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
 
     ngx_http_graphite_main_conf_t *gmcf = context.gmcf;
 
-    if (!gmcf->enable) {
-        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite config not set");
-        return NGX_CONF_ERROR;
-    }
+    if (!gmcf->enable)
+        return NGX_CONF_OK;
 
     ngx_http_graphite_param_t param;
     if (ngx_http_graphite_parse_param_args(&context, cf->args, &param) != NGX_OK)
