@@ -667,6 +667,10 @@ ngx_http_graphite_location(ngx_pool_t *pool, const ngx_str_t *uri) {
     while (split->len > 0 && split->data[split->len - 1] == '_')
         split->len--;
 
+    if (split->len == 0) {
+        split->data[split->len++] = '_';
+    }
+
     return split;
 }
 
