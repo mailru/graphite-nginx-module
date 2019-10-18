@@ -10,7 +10,7 @@ Features
 
 * Aggregation of location, server or http metrics
 * Calculation of percentiles
-* Sending data to Grahpite over UDP or TCP in non-blocking way
+* Sending data to Graphite over UDP or TCP in non-blocking way
 * Sending custom metrics from lua
 
 Version
@@ -37,7 +37,7 @@ Description
 ===========
 
 This module use shared memory segment to collect aggregated stats from all workers and send calculated values for last minute to Graphite every 60s (default) over UDP or TCP in non-blocking way.
-Stats aggegation made on the fly in fixed size buffer allocated on server start and does't affect server perfomance.
+Stats aggegation made on the fly in fixed size buffer allocated on server start and does't affect server performance.
 
 This module is in active use on [Mail.Ru Sites](http://mail.ru/) (one of largest web-services in Russia) for about a year and considered stable and well-tested.
 
@@ -190,7 +190,7 @@ percentile | Yes\*    | percentile level
 func   | Description
 ------ | -----------
 sum    | sum of values per interval
-persec | sum of values per second  (`sum` devided on seconds in `interval`)
+persec | sum of values per second  (`sum` divided on seconds in `interval`)
 avg    | average value on interval
 gauge  | gauge value
 
