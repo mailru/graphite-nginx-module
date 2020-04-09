@@ -23,7 +23,7 @@ new file mode 100644
 index 0000000..20812f9
 --- /dev/null
 +++ b/src/ngx_http_lua_graphite.c
-@@ -0,0 +1,120 @@
+@@ -0,0 +1,117 @@
 +#ifndef DDEBUG
 +#define DDEBUG 0
 +#endif
@@ -80,9 +80,6 @@ index 0000000..20812f9
 +        return 0;
 +
 +    double value = lua_tonumber(L, 3);
-+    const char *config = NULL;
-+    if (n == 3)
-+        config = lua_tostring(L, 4);
 +
 +    ngx_http_graphite(r, &name, value);
 +
