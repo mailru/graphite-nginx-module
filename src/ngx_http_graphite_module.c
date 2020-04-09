@@ -343,6 +343,15 @@ typedef struct ngx_http_graphite_internal_s {
     ngx_http_graphite_data_t data;
 } ngx_http_graphite_internal_t;
 
+typedef struct ngx_http_graphite_internal_value_s {
+    ngx_uint_t internal;
+    double value;
+} ngx_http_graphite_internal_value_t;
+
+typedef struct ngx_http_graphite_reqctx_s {
+    ngx_array_t *internal_values;
+} ngx_http_graphite_reqctx_t;
+
 typedef struct ngx_http_graphite_template_arg_s {
     ngx_str_t name;
     int variable;
@@ -1271,54 +1280,6 @@ ngx_http_graphite_search_param(const ngx_http_graphite_array_t *internals, const
             return i;
     }
     return i;
-}
-
-static ngx_array_t *
-ngx_http_graphite_create_param_args(ngx_pool_t *pool, const ngx_str_t *name, const char *config) {
-
-    ngx_array_t *args = ngx_array_create(pool, 4, sizeof(ngx_str_t));
-    if (args == NULL)
-        return NULL;
-
-    ngx_array_push(args);
-
-    ngx_str_t *n = ngx_array_push(args);
-    if (n == NULL) {
-        ngx_array_destroy(args);
-        return NULL;
-    }
-
-    n->data = ngx_palloc(pool, sizeof("name=") - 1 + name->len);
-    if (n->data == NULL) {
-        ngx_array_destroy(args);
-        return NULL;
-    }
-
-    n->len = ngx_sprintf(n->data, "name=%V", name) - n->data;
-
-    const char *p = config;
-    while (*p) {
-        while (isspace(*p))
-            p++;
-        const char *begin = p;
-        while (*p && !isspace(*p))
-            p++;
-        const char *end = p;
-
-        if (end - begin != 0) {
-            ngx_str_t *arg = ngx_array_push(args);
-            if (arg == NULL) {
-                ngx_array_destroy(args);
-                return NULL;
-            }
-            arg->data = (u_char*)begin;
-            arg->len = end - begin;
-        }
-        else
-            break;
-    }
-
-    return args;
 }
 
 static ngx_int_t
@@ -2326,6 +2287,32 @@ ngx_http_graphite_shared_init(ngx_shm_zone_t *shm_zone, void *data)
     return NGX_OK;
 }
 
+ngx_http_graphite_reqctx_t *
+ngx_http_graphite_get_reqctx(ngx_http_request_t *r) {
+
+    ngx_http_graphite_reqctx_t *reqctx;
+
+    reqctx = ngx_http_get_module_ctx(r->main, ngx_http_graphite_module);
+    if (reqctx)
+        return reqctx;
+
+    reqctx = ngx_pcalloc(r->main->pool, sizeof(ngx_http_graphite_reqctx_t));
+    if (reqctx == NULL) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "graphite can't alloc memory");
+        return NULL;
+    }
+
+    reqctx->internal_values = ngx_array_create(r->main->pool, 16, sizeof(ngx_http_graphite_internal_value_t));
+    if (reqctx->internal_values == NULL) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "graphite can't alloc memory");
+        return NULL;
+    }
+
+    ngx_http_set_ctx(r->main, reqctx, ngx_http_graphite_module);
+
+    return reqctx;
+}
+
 static double *
 ngx_http_graphite_get_sources_values(ngx_http_graphite_main_conf_t *gmcf, ngx_http_request_t *r) {
 
@@ -2474,7 +2461,9 @@ ngx_http_graphite_handler(ngx_http_request_t *r) {
     if (!gmcf->enable)
         return NGX_OK;
 
-    if (gmcf->datas->nelts == 0 && gscf->datas->nelts == 0 && glcf->datas->nelts == 0)
+    ngx_http_graphite_reqctx_t *reqctx = ngx_http_get_module_ctx(r->main, ngx_http_graphite_module);
+
+    if (gmcf->datas->nelts == 0 && gscf->datas->nelts == 0 && glcf->datas->nelts == 0 && (reqctx == NULL || reqctx->internal_values->nelts == 0))
         return NGX_OK;
 
     ngx_slab_pool_t *shpool = (ngx_slab_pool_t*)gmcf->shared->shm.addr;
@@ -2489,6 +2478,7 @@ ngx_http_graphite_handler(ngx_http_request_t *r) {
     }
 
     ngx_shmtx_lock(&shpool->mutex);
+
     ngx_http_graphite_del_old_records(gmcf, ts);
 
     if (r == r->main) {
@@ -2497,13 +2487,22 @@ ngx_http_graphite_handler(ngx_http_request_t *r) {
     }
     ngx_http_graphite_add_datas_values(r, storage, ts, glcf->datas, values);
 
+    if (reqctx != NULL) {
+        size_t i;
+        for (i = 0; i < reqctx->internal_values->nelts; i++) {
+            const ngx_http_graphite_internal_value_t *internal_value = &(((ngx_http_graphite_internal_value_t*)reqctx->internal_values->elts)[i]);
+            ngx_http_graphite_internal_t *internal = &((ngx_http_graphite_internal_t*)storage->internals->elts)[internal_value->internal];
+            ngx_http_graphite_add_data_values(r, storage, ts, &internal->data, &internal_value->value);
+        }
+    }
+
     ngx_shmtx_unlock(&shpool->mutex);
 
     return NGX_OK;
 }
 
 ngx_int_t
-ngx_http_graphite(ngx_http_request_t *r, const ngx_str_t *name, double value, const char *config) {
+ngx_http_graphite(ngx_http_request_t *r, const ngx_str_t *name, double value) {
 
     ngx_http_graphite_context_t context = ngx_http_graphite_context_from_request(r);
     ngx_http_graphite_main_conf_t *gmcf = context.gmcf;
@@ -2511,49 +2510,27 @@ ngx_http_graphite(ngx_http_request_t *r, const ngx_str_t *name, double value, co
     if (!gmcf->enable)
         return NGX_OK;
 
+    if (r->connection->fd == (ngx_socket_t)-1)
+        return NGX_OK;
+
     ngx_slab_pool_t *shpool = (ngx_slab_pool_t*)gmcf->shared->shm.addr;
     ngx_http_graphite_storage_t *storage = (ngx_http_graphite_storage_t*)shpool->data;
 
-    time_t ts = ngx_time();
-
-    ngx_shmtx_lock(&shpool->mutex);
-
-    ngx_http_graphite_del_old_records(gmcf, ts);
-
     ngx_int_t found = 0;
-    ngx_int_t i = ngx_http_graphite_search_param(storage->internals, name, &found);
+    ngx_int_t internal = ngx_http_graphite_search_param(storage->internals, name, &found);
 
-    if (!found) {
-        if (!config || storage->allocator->nomemory) {
-            ngx_shmtx_unlock(&shpool->mutex);
-            return NGX_OK;
-        }
+    if (!found)
+        return 0;
 
-        ngx_array_t *args = ngx_http_graphite_create_param_args(r->pool, name, config);
-        if (args == NULL) {
-            ngx_shmtx_unlock(&shpool->mutex);
-            return NGX_ERROR;
-        }
+    ngx_http_graphite_reqctx_t *reqctx = ngx_http_graphite_get_reqctx(r);
+    if (!reqctx)
+        return NGX_ERROR;
 
-        ngx_http_graphite_param_t param;
-
-        if (ngx_http_graphite_parse_param_args(&context, args, &param) != NGX_OK) {
-            ngx_shmtx_unlock(&shpool->mutex);
-            return NGX_ERROR;
-        }
-
-        i = ngx_http_graphite_add_internal(&context, &param);
-
-        if (i == NGX_ERROR) {
-            ngx_shmtx_unlock(&shpool->mutex);
-            return NGX_ERROR;
-        }
-    }
-
-    ngx_http_graphite_internal_t *internal = &((ngx_http_graphite_internal_t*)storage->internals->elts)[i];
-    ngx_http_graphite_add_data_values(r, storage, ts, &internal->data, &value);
-
-    ngx_shmtx_unlock(&shpool->mutex);
+    ngx_http_graphite_internal_value_t *internal_value = ngx_array_push(reqctx->internal_values);
+    if (internal_value == NULL)
+        return NGX_ERROR;
+    internal_value->internal = internal;
+    internal_value->value = value;
 
     return NGX_OK;
 }
@@ -2570,15 +2547,13 @@ ngx_http_graphite_get(ngx_http_request_t *r, const ngx_str_t *name) {
     ngx_slab_pool_t *shpool = (ngx_slab_pool_t*)gmcf->shared->shm.addr;
     ngx_http_graphite_storage_t *storage = (ngx_http_graphite_storage_t*)shpool->data;
 
-    ngx_shmtx_lock(&shpool->mutex);
-
     ngx_int_t found = 0;
     ngx_int_t i = ngx_http_graphite_search_param(storage->internals, name, &found);
 
-    if (!found) {
-        ngx_shmtx_unlock(&shpool->mutex);
+    if (!found)
         return 0;
-    }
+
+    ngx_shmtx_lock(&shpool->mutex);
 
     ngx_http_graphite_internal_t *internal = &((ngx_http_graphite_internal_t*)storage->internals->elts)[i];
     ngx_http_graphite_data_t *data = &internal->data;
@@ -2606,15 +2581,13 @@ ngx_http_graphite_set(ngx_http_request_t *r, const ngx_str_t *name, double value
     ngx_slab_pool_t *shpool = (ngx_slab_pool_t*)gmcf->shared->shm.addr;
     ngx_http_graphite_storage_t *storage = (ngx_http_graphite_storage_t*)shpool->data;
 
-    ngx_shmtx_lock(&shpool->mutex);
-
     ngx_int_t found = 0;
     ngx_int_t i = ngx_http_graphite_search_param(storage->internals, name, &found);
 
-    if (!found) {
-        ngx_shmtx_unlock(&shpool->mutex);
+    if (!found)
         return NGX_ERROR;
-    }
+
+    ngx_shmtx_lock(&shpool->mutex);
 
     ngx_http_graphite_internal_t *internal = &((ngx_http_graphite_internal_t*)storage->internals->elts)[i];
     ngx_http_graphite_data_t *data = &internal->data;

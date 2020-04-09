@@ -73,7 +73,7 @@ typedef struct {
 
 } ngx_http_graphite_main_conf_t;
 
-ngx_int_t ngx_http_graphite(ngx_http_request_t *r, const ngx_str_t *name, double value, const char *config);
+ngx_int_t ngx_http_graphite(ngx_http_request_t *r, const ngx_str_t *name, double value);
 double ngx_http_graphite_get(ngx_http_request_t *r, const ngx_str_t *name);
 ngx_int_t ngx_http_graphite_set(ngx_http_request_t *r, const ngx_str_t *name, double value);
 
