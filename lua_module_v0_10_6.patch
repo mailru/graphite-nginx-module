@@ -84,7 +84,7 @@ index 0000000..20812f9
 +    if (n == 3)
 +        config = lua_tostring(L, 4);
 +
-+    ngx_http_graphite(r, &name, value, config);
++    ngx_http_graphite(r, &name, value);
 +
 +    return 0;
 +}
