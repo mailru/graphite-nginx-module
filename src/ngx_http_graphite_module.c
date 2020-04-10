@@ -2740,7 +2740,7 @@ ngx_http_graphite_timer_handler(ngx_event_t *ev) {
 
     ngx_shmtx_lock(&shpool->mutex);
 
-    if ((ngx_uint_t)(ts - storage->event_time) * 1000 < gmcf->frequency) {
+    if ((ts - storage->event_time) * 1000 < (int)gmcf->frequency) {
         ngx_shmtx_unlock(&shpool->mutex);
         if (!(ngx_quit || ngx_terminate || ngx_exiting))
             ngx_add_timer(ev, gmcf->frequency);
