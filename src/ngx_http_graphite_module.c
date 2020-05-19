@@ -344,6 +344,7 @@ typedef struct ngx_http_graphite_internal_s {
 } ngx_http_graphite_internal_t;
 
 typedef struct ngx_http_graphite_internal_value_s {
+    time_t ts;
     ngx_uint_t internal;
     double value;
 } ngx_http_graphite_internal_value_t;
@@ -476,8 +477,9 @@ ngx_http_graphite_create_main_conf(ngx_conf_t *cf) {
     gmcf->default_data_template = ngx_array_create(cf->pool, 1, sizeof(ngx_http_graphite_template_t));
     gmcf->default_data_params = ngx_array_create(cf->pool, 1, sizeof(ngx_uint_t));
     gmcf->datas = ngx_array_create(cf->pool, 1, sizeof(ngx_http_graphite_data_t));
+    gmcf->internal_values = ngx_array_create(cf->pool, 16, sizeof(ngx_http_graphite_internal_value_t));
 
-    if (gmcf->sources == NULL || gmcf->splits == NULL || gmcf->intervals == NULL || gmcf->default_params == NULL || gmcf->template == NULL || gmcf->default_data_template == NULL || gmcf->default_data_params == NULL || gmcf->datas == NULL) {
+    if (gmcf->sources == NULL || gmcf->splits == NULL || gmcf->intervals == NULL || gmcf->default_params == NULL || gmcf->template == NULL || gmcf->default_data_template == NULL || gmcf->default_data_params == NULL || gmcf->datas == NULL || gmcf->internal_values == NULL) {
         ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't alloc memory");
         return NULL;
     }
@@ -2463,7 +2465,7 @@ ngx_http_graphite_handler(ngx_http_request_t *r) {
 
     ngx_http_graphite_reqctx_t *reqctx = ngx_http_get_module_ctx(r->main, ngx_http_graphite_module);
 
-    if (gmcf->datas->nelts == 0 && gscf->datas->nelts == 0 && glcf->datas->nelts == 0 && (reqctx == NULL || reqctx->internal_values->nelts == 0))
+    if (gmcf->datas->nelts == 0 && gscf->datas->nelts == 0 && glcf->datas->nelts == 0 && (reqctx == NULL || reqctx->internal_values->nelts == 0) && gmcf->internal_values->nelts == 0)
         return NGX_OK;
 
     ngx_slab_pool_t *shpool = (ngx_slab_pool_t*)gmcf->shared->shm.addr;
@@ -2492,9 +2494,17 @@ ngx_http_graphite_handler(ngx_http_request_t *r) {
         for (i = 0; i < reqctx->internal_values->nelts; i++) {
             const ngx_http_graphite_internal_value_t *internal_value = &(((ngx_http_graphite_internal_value_t*)reqctx->internal_values->elts)[i]);
             ngx_http_graphite_internal_t *internal = &((ngx_http_graphite_internal_t*)storage->internals->elts)[internal_value->internal];
-            ngx_http_graphite_add_data_values(r, storage, ts, &internal->data, &internal_value->value);
+            ngx_http_graphite_add_data_values(r, storage, internal_value->ts, &internal->data, &internal_value->value);
         }
     }
+
+   size_t i;
+   for (i = 0; i < gmcf->internal_values->nelts; i++) {
+        const ngx_http_graphite_internal_value_t *internal_value = &(((ngx_http_graphite_internal_value_t*)gmcf->internal_values->elts)[i]);
+        ngx_http_graphite_internal_t *internal = &((ngx_http_graphite_internal_t*)storage->internals->elts)[internal_value->internal];
+        ngx_http_graphite_add_data_values(r, storage, internal_value->ts, &internal->data, &internal_value->value);
+    }
+    gmcf->internal_values->nelts = 0;
 
     ngx_shmtx_unlock(&shpool->mutex);
 
@@ -2510,9 +2520,6 @@ ngx_http_graphite(ngx_http_request_t *r, const ngx_str_t *name, double value) {
     if (!gmcf->enable)
         return NGX_OK;
 
-    if (r->connection->fd == (ngx_socket_t)-1)
-        return NGX_OK;
-
     ngx_slab_pool_t *shpool = (ngx_slab_pool_t*)gmcf->shared->shm.addr;
     ngx_http_graphite_storage_t *storage = (ngx_http_graphite_storage_t*)shpool->data;
 
@@ -2520,15 +2527,24 @@ ngx_http_graphite(ngx_http_request_t *r, const ngx_str_t *name, double value) {
     ngx_int_t internal = ngx_http_graphite_search_param(storage->internals, name, &found);
 
     if (!found)
-        return 0;
+        return NGX_OK;
 
-    ngx_http_graphite_reqctx_t *reqctx = ngx_http_graphite_get_reqctx(r);
-    if (!reqctx)
-        return NGX_ERROR;
+    ngx_http_graphite_internal_value_t *internal_value = NULL;
+    if (r->connection->fd != (ngx_socket_t)-1) {
+        ngx_http_graphite_reqctx_t *reqctx = ngx_http_graphite_get_reqctx(r);
+        if (!reqctx)
+            return NGX_ERROR;
 
-    ngx_http_graphite_internal_value_t *internal_value = ngx_array_push(reqctx->internal_values);
+        internal_value = ngx_array_push(reqctx->internal_values);
+    }
+    else {
+        internal_value = ngx_array_push(gmcf->internal_values);
+    }
+
     if (internal_value == NULL)
         return NGX_ERROR;
+
+    internal_value->ts = ngx_time();
     internal_value->internal = internal;
     internal_value->value = value;
 

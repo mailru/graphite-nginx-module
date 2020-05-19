@@ -24,6 +24,7 @@ typedef struct ngx_http_graphite_storage_s {
 
     ngx_http_graphite_array_t *params;
     ngx_http_graphite_array_t *internals;
+
 } ngx_http_graphite_storage_t;
 
 typedef struct {
@@ -66,6 +67,7 @@ typedef struct {
     ngx_http_complex_value_t *default_data_filter;
 
     ngx_array_t *datas;
+    ngx_array_t *internal_values;
 
     ngx_http_graphite_storage_t *storage;
 
