@@ -92,7 +92,7 @@ static ngx_command_t ngx_http_graphite_commands[] = {
       NULL },
 
     { ngx_string("graphite_param"),
-      NGX_HTTP_LOC_CONF | NGX_HTTP_LIF_CONF | NGX_CONF_TAKE2 | NGX_CONF_TAKE3 | NGX_CONF_TAKE4,
+      NGX_HTTP_MAIN_CONF | NGX_HTTP_SRV_CONF | NGX_HTTP_LOC_CONF | NGX_HTTP_LIF_CONF | NGX_CONF_TAKE2 | NGX_CONF_TAKE3 | NGX_CONF_TAKE4,
       ngx_http_graphite_param,
       NGX_HTTP_LOC_CONF_OFFSET,
       0,
