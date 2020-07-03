@@ -1429,10 +1429,14 @@ ngx_http_graphite_search_param(const ngx_http_graphite_array_t *internals, const
     size_t i;
     for (i = 0; i < internals->nelts; i++) {
         ngx_http_graphite_internal_t *internal = &((ngx_http_graphite_internal_t*)internals->elts)[i];
-        size_t min_len = internal->name.len < name->len ? internal->name.len : name->len;
-        ngx_int_t r = ngx_strncmp(internal->name.data, name->data, min_len);
+        if (internal->name.len != name->len) {
+            if (internal->name.len > name->len)
+                return i;
+            continue;
+        }
+        ngx_int_t r = ngx_strncmp(internal->name.data, name->data, name->len);
 
-        if (r == 0 && internal->name.len == name->len) {
+        if (r == 0) {
             *found = 1;
             return i;
         }
