@@ -71,6 +71,9 @@ static char *ngx_http_graphite_config_arg_package(ngx_http_graphite_context_t *c
 static char *ngx_http_graphite_config_arg_template(ngx_http_graphite_context_t *context, void *data, ngx_str_t *value);
 static char *ngx_http_graphite_config_arg_protocol(ngx_http_graphite_context_t *context, void *data, ngx_str_t *value);
 static char *ngx_http_graphite_config_arg_timeout(ngx_http_graphite_context_t *context, void *data, ngx_str_t *value);
+#ifdef NGX_LOG_LIMIT_ENABLED
+static char *ngx_http_graphite_config_arg_error_log(ngx_http_graphite_context_t *context, void *data, ngx_str_t *value);
+#endif
 
 static char *ngx_http_graphite_param_arg_name(ngx_http_graphite_context_t *context, void *data, ngx_str_t *value);
 static char *ngx_http_graphite_param_arg_aggregate(ngx_http_graphite_context_t *context, void *data, ngx_str_t *value);
@@ -185,6 +188,9 @@ static const ngx_http_graphite_arg_t ngx_http_graphite_config_args[] = {
     { ngx_string("template"), ngx_http_graphite_config_arg_template, ngx_null_string },
     { ngx_string("protocol"), ngx_http_graphite_config_arg_protocol, ngx_string("udp") },
     { ngx_string("timeout"), ngx_http_graphite_config_arg_timeout, ngx_string("100") },
+#ifdef NGX_LOG_LIMIT_ENABLED
+    { ngx_string("error_log"), ngx_http_graphite_config_arg_error_log, ngx_null_string },
+#endif
 };
 
 #define PARAM_ARGS_COUNT 4
@@ -349,6 +355,13 @@ typedef struct ngx_http_graphite_internal_value_s {
     double value;
 } ngx_http_graphite_internal_value_t;
 
+#ifdef NGX_LOG_LIMIT_ENABLED
+typedef struct ngx_http_graphite_log_s {
+    ngx_str_t name;
+    ngx_array_t *error_logs; /* of (ngx_log_t *) */
+} ngx_http_graphite_log_t;
+#endif
+
 typedef struct ngx_http_graphite_reqctx_s {
     ngx_array_t *internal_values;
 } ngx_http_graphite_reqctx_t;
@@ -426,11 +439,103 @@ ngx_http_graphite_add_variables(ngx_conf_t *cf)
     return NGX_OK;
 }
 
+#ifdef NGX_LOG_LIMIT_ENABLED
+static ngx_http_graphite_log_t *
+ngx_http_graphite_search_log(
+    ngx_http_graphite_main_conf_t *gmcf, const ngx_str_t *name)
+{
+    ngx_array_t *logs = gmcf->logs;
+
+    for (ngx_uint_t i = 0; i != logs->nelts; i++) {
+        ngx_http_graphite_log_t *gl = &((ngx_http_graphite_log_t*)logs->elts)[i];
+
+        if (gl->name.len == name->len
+            && !ngx_strncmp(gl->name.data, name->data, name->len))
+            return gl;
+    }
+    return NULL;
+}
+
+static ngx_int_t
+ngx_http_graphite_init_error_log(ngx_conf_t *cf) {
+    ngx_http_graphite_main_conf_t *gmcf;
+
+    gmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_graphite_module);
+
+    if (!gmcf->error_log.len)
+        return NGX_OK;
+
+    ngx_log_conf_t *lcf;
+    lcf = (ngx_log_conf_t*)ngx_get_conf(cf->cycle->conf_ctx, ngx_errlog_module);
+
+    for (ngx_log_t *log = lcf->global_logs; log != NULL;
+         log = log->global_next) {
+
+        ngx_str_t *file_name;
+
+        if (log->writer != NULL || log->file == NULL
+            || !(file_name = &log->file->name)->len) {
+
+            /* skip non-files */
+            continue;
+        }
+
+        u_char name_data[file_name->len];
+        ngx_str_t log_name = {.len = sizeof(name_data), .data = name_data};
+
+        for (size_t i = 0; i != log_name.len; i++) {
+            u_char c = file_name->data[i];
+
+            if (!isalnum(c))
+                c = '_';
+            log_name.data[i] = c;
+        }
+
+        ngx_http_graphite_log_t *gl;
+
+        gl = ngx_http_graphite_search_log(gmcf, &log_name);
+        if (gl == NULL) {
+            if ((gl = ngx_array_push(gmcf->logs)) == NULL) {
+                ngx_conf_log_error(
+                    NGX_LOG_ERR, cf, 0, "graphite can't allocate memory "
+                    "for a new log object");
+                return NGX_ERROR;
+            }
+            gl->name.len = log_name.len;
+            gl->name.data = ngx_pstrdup(cf->pool, &log_name);
+            gl->error_logs = ngx_array_create(cf->pool, 1, sizeof(ngx_log_t *));
+            if (gl->name.data == NULL || gl->error_logs == NULL) {
+                ngx_conf_log_error(
+                    NGX_LOG_ERR, cf, 0, "graphite can't allocate memory "
+                    "for internals of a new log object");
+                return NGX_ERROR;
+            }
+        }
+
+        ngx_log_t **plog;
+
+        if ((plog = ngx_array_push(gl->error_logs)) == NULL) {
+            ngx_conf_log_error(
+                NGX_LOG_ERR, cf, 0, "graphite can't allocate memory "
+                "to store an nginx log object");
+            return NGX_ERROR;
+        }
+        *plog = log;
+    }
+    return NGX_OK;
+}
+#endif
+
 static ngx_int_t
 ngx_http_graphite_init(ngx_conf_t *cf) {
 
     ngx_http_handler_pt *h;
     ngx_http_core_main_conf_t *cmcf;
+
+#ifdef NGX_LOG_LIMIT_ENABLED
+    if (ngx_http_graphite_init_error_log(cf) == NGX_ERROR)
+        return NGX_ERROR;
+#endif
 
     cmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_core_module);
 
@@ -478,6 +583,9 @@ ngx_http_graphite_create_main_conf(ngx_conf_t *cf) {
     gmcf->default_data_params = ngx_array_create(cf->pool, 1, sizeof(ngx_uint_t));
     gmcf->datas = ngx_array_create(cf->pool, 1, sizeof(ngx_http_graphite_data_t));
     gmcf->internal_values = ngx_array_create(cf->pool, 16, sizeof(ngx_http_graphite_internal_value_t));
+#ifdef NGX_LOG_LIMIT_ENABLED
+    gmcf->logs = ngx_array_create(cf->pool, 1, sizeof(ngx_http_graphite_log_t));
+#endif
 
     if (gmcf->sources == NULL || gmcf->splits == NULL || gmcf->intervals == NULL || gmcf->default_params == NULL || gmcf->template == NULL || gmcf->default_data_template == NULL || gmcf->default_data_params == NULL || gmcf->datas == NULL || gmcf->internal_values == NULL) {
         ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite can't alloc memory");
@@ -1444,6 +1552,15 @@ ngx_http_graphite_config_arg_timeout(ngx_http_graphite_context_t *context, void 
 
     return NGX_CONF_OK;
 }
+
+#ifdef NGX_LOG_LIMIT_ENABLED
+static char *
+ngx_http_graphite_config_arg_error_log(ngx_http_graphite_context_t *context, void *data, ngx_str_t *value) {
+
+    ngx_http_graphite_main_conf_t *gmcf = data;
+    return ngx_http_graphite_parse_string(context, value, &gmcf->error_log);
+}
+#endif
 
 static char *
 ngx_http_graphite_config_arg_server(ngx_http_graphite_context_t *context, void *data, ngx_str_t *value) {
@@ -2740,6 +2857,37 @@ ngx_http_graphite_print_statistic(ngx_http_graphite_main_conf_t *gmcf, ngx_http_
     return b;
 }
 
+#ifdef NGX_LOG_LIMIT_ENABLED
+static u_char*
+ngx_http_graphite_print_log(
+    ngx_http_graphite_main_conf_t *gmcf, ngx_http_graphite_log_t *gl,
+    time_t ts, u_char *buffer, size_t buffer_size)
+{
+    size_t total = 0;
+    size_t skipped = 0;
+    u_char *b = buffer;
+
+    for (ngx_uint_t i = 0; i != gl->error_logs->nelts; i++) {
+        ngx_log_t *log = ((ngx_log_t**)gl->error_logs->elts)[i];
+        ngx_log_grow_t *grow;
+
+        if ((grow = log->grow) == NULL)
+            continue;
+        skipped += grow->total_bytes_skipped;
+        total += grow->total_bytes;
+    }
+    if (gmcf->prefix.len)
+        b = ngx_snprintf((u_char*)b, buffer_size - (b - buffer), "%V.", &gmcf->prefix);
+    b = ngx_snprintf((u_char*)b, buffer_size - (b - buffer), "%V.%V.%V.total %uz %T\n", &gmcf->host, &gmcf->error_log, &gl->name, total, ts);
+
+    if (gmcf->prefix.len)
+        b = ngx_snprintf((u_char*)b, buffer_size - (b - buffer), "%V.", &gmcf->prefix);
+    b = ngx_snprintf((u_char*)b, buffer_size - (b - buffer), "%V.%V.%V.skipped %uz %T\n", &gmcf->host, &gmcf->error_log, &gl->name, skipped, ts);
+
+    return b;
+}
+#endif
+
 static void
 ngx_http_graphite_timer_handler(ngx_event_t *ev) {
 
@@ -2806,9 +2954,17 @@ ngx_http_graphite_timer_handler(ngx_event_t *ev) {
         ngx_http_graphite_statistic_data_t *data = statistic->data;
         ngx_http_graphite_statistic_init(data, param->percentile);
     }
-    *b = '\0';
 
     ngx_shmtx_unlock(&shpool->mutex);
+
+#ifdef NGX_LOG_LIMIT_ENABLED
+    for (ngx_uint_t i = 0; i != gmcf->logs->nelts; i++) {
+        ngx_http_graphite_log_t *gl = &((ngx_http_graphite_log_t*)gmcf->logs->elts)[i];
+        b = ngx_http_graphite_print_log(gmcf, gl, ts, b, gmcf->buffer_size - (b - buffer->start));
+    }
+#endif
+
+    *b = '\0';
 
     if (b == buffer->start + gmcf->buffer_size) {
         ngx_log_error(NGX_LOG_ALERT, ev->log, 0, "graphite buffer size is too small");
