@@ -39,6 +39,9 @@ typedef struct {
 
     ngx_str_t host;
     ngx_str_t protocol;
+#ifdef NGX_GRAPHITE_PATCH_LOG
+    ngx_str_t error_log;
+#endif
     ngx_shm_zone_t *shared;
     ngx_buf_t buffer;
 
@@ -68,6 +71,9 @@ typedef struct {
 
     ngx_array_t *datas;
     ngx_array_t *internal_values;
+#ifdef NGX_GRAPHITE_PATCH_LOG
+    ngx_array_t *logs;
+#endif
 
     ngx_http_graphite_storage_t *storage;
 
