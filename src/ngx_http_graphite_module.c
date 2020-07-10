@@ -170,9 +170,9 @@ typedef struct ngx_http_graphite_arg_s {
 #define DEFAULT_PARAMS "request_time|bytes_sent|body_bytes_sent|request_length|ssl_cache_usage|rps|keepalive_rps|response_2xx_rps|response_3xx_rps|response_4xx_rps|response_5xx_rps"
 #endif
 
-#define CONFIG_ARGS_COUNT 13
+#define CONFIG_ARGS_COUNT (sizeof(ngx_http_graphite_config_args) / sizeof(ngx_http_graphite_config_args[0]))
 
-static const ngx_http_graphite_arg_t ngx_http_graphite_config_args[CONFIG_ARGS_COUNT] = {
+static const ngx_http_graphite_arg_t ngx_http_graphite_config_args[] = {
     { ngx_string("prefix"), ngx_http_graphite_config_arg_prefix, ngx_null_string },
     { ngx_string("host"), ngx_http_graphite_config_arg_host, ngx_null_string },
     { ngx_string("server"), ngx_http_graphite_config_arg_server, ngx_null_string },
