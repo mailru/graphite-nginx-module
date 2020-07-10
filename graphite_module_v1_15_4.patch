@@ -1,5 +1,19 @@
+From dceb7d25bac88df58ce4ac374a91c838608a0549 Mon Sep 17 00:00:00 2001
+From: Mikhail Kirichenko <m.kirichenko@corp.mail.ru>
+Date: Thu, 5 Sep 2019 11:12:15 +0300
+Subject: [PATCH 1/7] RB-25319: add graphite module patch for nginx version >=
+ 1.15.4
+
+---
+ src/event/ngx_event_openssl.c                  | 17 +++++++++++++++++
+ src/event/ngx_event_openssl.h                  |  8 ++++++++
+ src/http/modules/ngx_http_gzip_filter_module.c |  9 +++++++++
+ src/http/ngx_http_core_module.c                | 12 +++++++++++-
+ src/http/ngx_http_request.h                    | 14 ++++++++++++++
+ 5 files changed, 59 insertions(+), 1 deletion(-)
+
 diff --git a/src/event/ngx_event_openssl.c b/src/event/ngx_event_openssl.c
-index 3a0e150..0eb06aa 100644
+index 3a0e150d..0eb06aae 100644
 --- a/src/event/ngx_event_openssl.c
 +++ b/src/event/ngx_event_openssl.c
 @@ -1363,6 +1363,16 @@ ngx_ssl_handshake(ngx_connection_t *c)
@@ -34,7 +48,7 @@ index 3a0e150..0eb06aa 100644
      }
  
 diff --git a/src/event/ngx_event_openssl.h b/src/event/ngx_event_openssl.h
-index abd84cc..6735aa9 100644
+index abd84ccf..6735aa93 100644
 --- a/src/event/ngx_event_openssl.h
 +++ b/src/event/ngx_event_openssl.h
 @@ -89,6 +89,14 @@ struct ngx_ssl_connection_s {
@@ -53,7 +67,7 @@ index abd84cc..6735aa9 100644
      unsigned                    renegotiation:1;
      unsigned                    buffer:1;
 diff --git a/src/http/modules/ngx_http_gzip_filter_module.c b/src/http/modules/ngx_http_gzip_filter_module.c
-index e4c343c..1f1bd43 100644
+index e4c343c9..1f1bd438 100644
 --- a/src/http/modules/ngx_http_gzip_filter_module.c
 +++ b/src/http/modules/ngx_http_gzip_filter_module.c
 @@ -427,7 +427,16 @@ ngx_http_gzip_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
@@ -74,7 +88,7 @@ index e4c343c..1f1bd43 100644
              if (rc == NGX_OK) {
                  break;
 diff --git a/src/http/ngx_http_core_module.c b/src/http/ngx_http_core_module.c
-index c57ec00..8e97fa3 100644
+index c57ec00c..8e97fa36 100644
 --- a/src/http/ngx_http_core_module.c
 +++ b/src/http/ngx_http_core_module.c
 @@ -1166,7 +1166,17 @@ ngx_http_core_content_phase(ngx_http_request_t *r,
@@ -97,7 +111,7 @@ index c57ec00..8e97fa3 100644
      }
  
 diff --git a/src/http/ngx_http_request.h b/src/http/ngx_http_request.h
-index 6bfff96..c67378d 100644
+index 6bfff96e..c67378db 100644
 --- a/src/http/ngx_http_request.h
 +++ b/src/http/ngx_http_request.h
 @@ -586,6 +586,20 @@ struct ngx_http_request_s {
@@ -121,3 +135,766 @@ index 6bfff96..c67378d 100644
  };
  
  
+-- 
+2.25.1
+
+
+From 0319123c8009cab038e7ee957083bfbdd13caf60 Mon Sep 17 00:00:00 2001
+From: Alexander Drozdov <aleksandr.drozdov@corp.mail.ru>
+Date: Thu, 25 Jun 2020 09:20:58 +0300
+Subject: [PATCH 2/7] RB-27104: log: refactor writing to error_log, part 1
+
+ngx_log_error_core():
+We split code which checks if a message should be written to
+each (ngx_log_t *) from the one which really writes.
+The corresponding functions are:
+- ngx_log_error_core_check()
+- ngx_log_error_core_write()
+---
+ src/core/ngx_log.c | 62 +++++++++++++++++++++++++++++-----------------
+ 1 file changed, 39 insertions(+), 23 deletions(-)
+
+diff --git a/src/core/ngx_log.c b/src/core/ngx_log.c
+index 8e9408df..c8a55581 100644
+--- a/src/core/ngx_log.c
++++ b/src/core/ngx_log.c
+@@ -90,6 +90,42 @@ static const char *debug_levels[] = {
+ };
+ 
+ 
++static void
++ngx_log_error_core_write(ngx_log_t *log, ngx_uint_t level,
++    void *buf, size_t size, ngx_uint_t *wrote_stderr)
++{
++    ssize_t      n;
++
++    if (log->writer) {
++        log->writer(log, level, buf, size);
++        return;
++    }
++    n = ngx_write_fd(log->file->fd, buf, size);
++
++    if (n == -1 && ngx_errno == NGX_ENOSPC) {
++        log->disk_full_time = ngx_time();
++    }
++
++    if (log->file->fd == ngx_stderr) {
++        *wrote_stderr = 1;
++    }
++}
++
++static ngx_int_t
++ngx_log_error_core_check(ngx_log_t *log, size_t size, ngx_uint_t *wrote_stderr)
++{
++    if (log->writer == NULL && ngx_time() == log->disk_full_time) {
++        /*
++         * on FreeBSD writing to a full filesystem with enabled softupdates
++         * may block process for much longer time than writing to non-full
++         * filesystem, so we skip writing to a log for one second
++         */
++
++        return NGX_DECLINED;
++    }
++    return NGX_OK;
++}
++
+ #if (NGX_HAVE_VARIADIC_MACROS)
+ 
+ void
+@@ -108,7 +144,6 @@ ngx_log_error_core(ngx_uint_t level, ngx_log_t *log, ngx_err_t err,
+     va_list      args;
+ #endif
+     u_char      *p, *last, *msg;
+-    ssize_t      n;
+     ngx_uint_t   wrote_stderr, debug_connection;
+     u_char       errstr[NGX_MAX_ERROR_STR];
+ 
+@@ -164,31 +199,12 @@ ngx_log_error_core(ngx_uint_t level, ngx_log_t *log, ngx_err_t err,
+             break;
+         }
+ 
+-        if (log->writer) {
+-            log->writer(log, level, errstr, p - errstr);
++        if (ngx_log_error_core_check(
++                log, p - errstr, &wrote_stderr) != NGX_OK) {
+             goto next;
+         }
+ 
+-        if (ngx_time() == log->disk_full_time) {
+-
+-            /*
+-             * on FreeBSD writing to a full filesystem with enabled softupdates
+-             * may block process for much longer time than writing to non-full
+-             * filesystem, so we skip writing to a log for one second
+-             */
+-
+-            goto next;
+-        }
+-
+-        n = ngx_write_fd(log->file->fd, errstr, p - errstr);
+-
+-        if (n == -1 && ngx_errno == NGX_ENOSPC) {
+-            log->disk_full_time = ngx_time();
+-        }
+-
+-        if (log->file->fd == ngx_stderr) {
+-            wrote_stderr = 1;
+-        }
++        ngx_log_error_core_write(log, level, errstr, p - errstr, &wrote_stderr);
+ 
+     next:
+ 
+-- 
+2.25.1
+
+
+From dd288c757125e9926aed783b641568e6632688df Mon Sep 17 00:00:00 2001
+From: Alexander Drozdov <aleksandr.drozdov@corp.mail.ru>
+Date: Tue, 30 Jun 2020 12:20:56 +0300
+Subject: [PATCH 3/7] RB-27104: log: refactor writing to error_log, part 2
+
+ngx_log_error_core_write():
+return NGX_DECLINED on a log message writing failure.
+We'll use the feature later, see subsequent changesets.
+---
+ src/core/ngx_log.c | 15 +++++++++++----
+ 1 file changed, 11 insertions(+), 4 deletions(-)
+
+diff --git a/src/core/ngx_log.c b/src/core/ngx_log.c
+index c8a55581..858210ec 100644
+--- a/src/core/ngx_log.c
++++ b/src/core/ngx_log.c
+@@ -90,25 +90,32 @@ static const char *debug_levels[] = {
+ };
+ 
+ 
+-static void
++static ngx_int_t
+ ngx_log_error_core_write(ngx_log_t *log, ngx_uint_t level,
+     void *buf, size_t size, ngx_uint_t *wrote_stderr)
+ {
+     ssize_t      n;
++    ngx_int_t    rc = NGX_OK;
+ 
+     if (log->writer) {
+         log->writer(log, level, buf, size);
+-        return;
++        goto done;
+     }
+     n = ngx_write_fd(log->file->fd, buf, size);
+ 
+-    if (n == -1 && ngx_errno == NGX_ENOSPC) {
+-        log->disk_full_time = ngx_time();
++    if (n == -1) {
++        if (ngx_errno == NGX_ENOSPC) {
++            log->disk_full_time = ngx_time();
++        }
++        rc = NGX_DECLINED;
+     }
+ 
+     if (log->file->fd == ngx_stderr) {
+         *wrote_stderr = 1;
+     }
++
++done:
++    return rc;
+ }
+ 
+ static ngx_int_t
+-- 
+2.25.1
+
+
+From 2255780ae4b9e9a3ba63aba7bb1c3730711baeb6 Mon Sep 17 00:00:00 2001
+From: Alexander Drozdov <aleksandr.drozdov@corp.mail.ru>
+Date: Thu, 25 Jun 2020 14:10:46 +0300
+Subject: [PATCH 4/7] RB-27104: log: allow to load extra error_log parameters
+
+We renamed ngx_log_set_levels() to ngx_log_set_params() to allow
+the function to read not only log levels but also a list of extra
+parameters. The parameters list now is empty. We'll add one soon,
+see subsequent changesets.
+---
+ src/core/ngx_log.c | 37 ++++++++++++++++++++++++++++++++++---
+ 1 file changed, 34 insertions(+), 3 deletions(-)
+
+diff --git a/src/core/ngx_log.c b/src/core/ngx_log.c
+index 858210ec..53ad8d82 100644
+--- a/src/core/ngx_log.c
++++ b/src/core/ngx_log.c
+@@ -10,7 +10,7 @@
+ 
+ 
+ static char *ngx_error_log(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
+-static char *ngx_log_set_levels(ngx_conf_t *cf, ngx_log_t *log);
++static char *ngx_log_set_params(ngx_conf_t *cf, ngx_log_t *log);
+ static void ngx_log_insert(ngx_log_t *log, ngx_log_t *new_log);
+ 
+ 
+@@ -89,6 +89,11 @@ static const char *debug_levels[] = {
+     "debug_http", "debug_mail", "debug_stream"
+ };
+ 
++static const struct ngx_log_parameter {
++    const char *name;
++    char *(*load)(ngx_conf_t *cf, ngx_log_t *log, u_char *name, u_char *value);
++} log_parameters[] = {
++};
+ 
+ static ngx_int_t
+ ngx_log_error_core_write(ngx_log_t *log, ngx_uint_t level,
+@@ -502,7 +507,7 @@ ngx_log_get_file_log(ngx_log_t *head)
+ 
+ 
+ static char *
+-ngx_log_set_levels(ngx_conf_t *cf, ngx_log_t *log)
++ngx_log_set_params(ngx_conf_t *cf, ngx_log_t *log)
+ {
+     ngx_uint_t   i, n, d, found;
+     ngx_str_t   *value;
+@@ -515,8 +520,34 @@ ngx_log_set_levels(ngx_conf_t *cf, ngx_log_t *log)
+     value = cf->args->elts;
+ 
+     for (i = 2; i < cf->args->nelts; i++) {
++        u_char *param_value;
++
+         found = 0;
+ 
++        if ((param_value = (u_char *)ngx_strchr(value[i].data, '=')) != NULL) {
++            *param_value++ = '\0';
++
++            for (n = 0; n != sizeof(log_parameters) / sizeof(log_parameters[0]);
++                 n++) {
++                char *load_rv;
++
++                if (ngx_strcmp(value[i].data, log_parameters[n].name) != 0)
++                    continue;
++                load_rv = log_parameters[n].load(
++                    cf, log, value[i].data, param_value);
++                if (load_rv != NGX_CONF_OK)
++                    return load_rv;
++                found = 1;
++                break;
++            }
++            if (!found) {
++                ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
++                                   "unknown parameter \"%s\"",
++                                   value[i].data);
++                return NGX_CONF_ERROR;
++            }
++        }
++
+         for (n = 1; n <= NGX_LOG_DEBUG; n++) {
+             if (ngx_strcmp(value[i].data, err_levels[n].data) == 0) {
+ 
+@@ -687,7 +718,7 @@ ngx_log_set_log(ngx_conf_t *cf, ngx_log_t **head)
+         }
+     }
+ 
+-    if (ngx_log_set_levels(cf, new_log) != NGX_CONF_OK) {
++    if (ngx_log_set_params(cf, new_log) != NGX_CONF_OK) {
+         return NGX_CONF_ERROR;
+     }
+ 
+-- 
+2.25.1
+
+
+From f80b8bd00a9c298c2e7c8796e8d413ed8df99b04 Mon Sep 17 00:00:00 2001
+From: Alexander Drozdov <aleksandr.drozdov@corp.mail.ru>
+Date: Thu, 25 Jun 2020 20:38:36 +0300
+Subject: [PATCH 5/7] RB-27104: log: add error_log grow limit support
+
+Add 'grow_limit' parameter to error_log directive.
+The parameter sets an error_log grow limit, in bytes per second.
+When the limit is reached then no more messages are printed
+this second, and "[N messages skipped]" is printed after the
+second.
+
+Example:
+error_log  error.log error grow_limit=1k;
+---
+ src/core/ngx_log.c | 272 ++++++++++++++++++++++++++++++++++++++++++++-
+ src/core/ngx_log.h |  15 +++
+ 2 files changed, 284 insertions(+), 3 deletions(-)
+
+diff --git a/src/core/ngx_log.c b/src/core/ngx_log.c
+index 53ad8d82..43f90445 100644
+--- a/src/core/ngx_log.c
++++ b/src/core/ngx_log.c
+@@ -8,10 +8,18 @@
+ #include <ngx_config.h>
+ #include <ngx_core.h>
+ 
++#define NGX_LOG_SHM_PREFIX "_ngx_log_"
++#define NGX_LOG_SHM_PART_SIZE (32 * 1024)
++#define NGX_LOG_SHM_DATAS_PER_PART \
++    (NGX_LOG_SHM_PART_SIZE / 2 / sizeof(ngx_log_grow_t))
+ 
++static void *ngx_log_module_create_conf(ngx_cycle_t *cycle);
++static char *ngx_log_module_init_conf(ngx_cycle_t *cycle, void *conf);
+ static char *ngx_error_log(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
+ static char *ngx_log_set_params(ngx_conf_t *cf, ngx_log_t *log);
+ static void ngx_log_insert(ngx_log_t *log, ngx_log_t *new_log);
++static char *ngx_log_param_grow_limit(
++    ngx_conf_t *cf, ngx_log_t *log, u_char *name, u_char *value);
+ 
+ 
+ #if (NGX_DEBUG)
+@@ -46,8 +54,8 @@ static ngx_command_t  ngx_errlog_commands[] = {
+ 
+ static ngx_core_module_t  ngx_errlog_module_ctx = {
+     ngx_string("errlog"),
+-    NULL,
+-    NULL
++    ngx_log_module_create_conf,
++    ngx_log_module_init_conf
+ };
+ 
+ 
+@@ -93,8 +101,23 @@ static const struct ngx_log_parameter {
+     const char *name;
+     char *(*load)(ngx_conf_t *cf, ngx_log_t *log, u_char *name, u_char *value);
+ } log_parameters[] = {
++    {"grow_limit", ngx_log_param_grow_limit},
+ };
+ 
++
++static void
++ngx_log_error_core_skip(ngx_log_t *log, size_t size)
++{
++    ngx_log_grow_t *grow = log->grow;
++
++    if (grow == NULL) {
++        return;
++    }
++
++    ngx_atomic_fetch_add(&grow->total_bytes_skipped, size);
++    ngx_atomic_fetch_add(&grow->last_msgs_skipped, 1);
++}
++
+ static ngx_int_t
+ ngx_log_error_core_write(ngx_log_t *log, ngx_uint_t level,
+     void *buf, size_t size, ngx_uint_t *wrote_stderr)
+@@ -123,6 +146,37 @@ done:
+     return rc;
+ }
+ 
++static ngx_int_t
++ngx_log_error_core_write_skipped(
++    ngx_log_t *log, size_t last_msgs_skipped, ngx_uint_t *wrote_stderr)
++{
++    u_char      *p, *last;
++    u_char       errstr[NGX_MAX_ERROR_STR];
++    ngx_uint_t   level = NGX_LOG_ERR;
++
++    last = errstr + NGX_MAX_ERROR_STR;
++
++    p = ngx_cpymem(errstr, ngx_cached_err_log_time.data,
++                   ngx_cached_err_log_time.len);
++
++    p = ngx_slprintf(p, last, " [%V] ", &err_levels[level]);
++
++    /* pid#tid */
++    p = ngx_slprintf(p, last, "%P#" NGX_TID_T_FMT ": ",
++                    ngx_log_pid, ngx_log_tid);
++
++    p = ngx_slprintf(p, last, "[%uz messages skipped]", last_msgs_skipped);
++
++    if (p > last - NGX_LINEFEED_SIZE) {
++        p = last - NGX_LINEFEED_SIZE;
++    }
++
++    ngx_linefeed(p);
++
++    return ngx_log_error_core_write(
++        log, level, errstr, p - errstr, wrote_stderr);
++}
++
+ static ngx_int_t
+ ngx_log_error_core_check(ngx_log_t *log, size_t size, ngx_uint_t *wrote_stderr)
+ {
+@@ -135,6 +189,66 @@ ngx_log_error_core_check(ngx_log_t *log, size_t size, ngx_uint_t *wrote_stderr)
+ 
+         return NGX_DECLINED;
+     }
++
++    size_t grow_limit = log->grow_limit;
++    ngx_log_grow_t *grow = log->grow;
++
++    if (grow == NULL || (!grow_limit && !grow->last_msgs_skipped)) {
++        return NGX_OK;
++    }
++
++    time_t last_time, now_time;
++    size_t total_bytes, prev_total_bytes;
++
++    do {
++        ngx_msec_t now_time_msec = ngx_current_msec;
++
++        last_time = grow->last_time;
++        ngx_memory_barrier();
++        prev_total_bytes = grow->prev_total_bytes;
++        total_bytes = grow->total_bytes;
++
++        if (now_time_msec < (ngx_msec_t)(last_time + 1) * 1000) {
++            if (!grow_limit
++                || total_bytes < prev_total_bytes
++                || total_bytes - prev_total_bytes < grow_limit) {
++                return NGX_OK;
++            }
++            return NGX_DECLINED;
++        }
++        now_time = now_time_msec / 1000;
++    } while (!ngx_atomic_cmp_set(
++                 &grow->last_time, last_time, now_time)
++             /*
++              * prev_total_bytes should now be actual
++              * until now_time is obsoleted
++              */
++              || !ngx_atomic_cmp_set(
++                  &grow->prev_total_bytes, prev_total_bytes, total_bytes));
++
++    /* we've updated grow->last_time & grow->prev_total_bytes */
++
++    size_t last_msgs_skipped;
++
++    /* swap (&grow->last_msgs_skipped, 0) */
++    do {
++        last_msgs_skipped = grow->last_msgs_skipped;
++        if (!last_msgs_skipped)
++            break;
++    } while (!ngx_atomic_cmp_set(
++                 &grow->last_msgs_skipped, last_msgs_skipped, 0));
++
++    if (last_msgs_skipped) {
++        if (ngx_log_error_core_write_skipped(
++                log, last_msgs_skipped, wrote_stderr) != NGX_OK) {
++
++            /* push last_msgs_skipped back to the counder to retry later */
++
++            ngx_atomic_fetch_add(&grow->last_msgs_skipped, last_msgs_skipped);
++            return NGX_DECLINED;
++        }
++    }
++
+     return NGX_OK;
+ }
+ 
+@@ -211,12 +325,20 @@ ngx_log_error_core(ngx_uint_t level, ngx_log_t *log, ngx_err_t err,
+             break;
+         }
+ 
++        if (log->grow != NULL) {
++            ngx_atomic_fetch_add(&log->grow->total_bytes, p - errstr);
++        }
++
+         if (ngx_log_error_core_check(
+                 log, p - errstr, &wrote_stderr) != NGX_OK) {
++            ngx_log_error_core_skip(log, p - errstr);
+             goto next;
+         }
+ 
+-        ngx_log_error_core_write(log, level, errstr, p - errstr, &wrote_stderr);
++        if (ngx_log_error_core_write(
++                log, level, errstr, p - errstr, &wrote_stderr) != NGX_OK) {
++            ngx_log_error_core_skip(log, p - errstr);
++        }
+ 
+     next:
+ 
+@@ -505,6 +627,23 @@ ngx_log_get_file_log(ngx_log_t *head)
+     return NULL;
+ }
+ 
++static char *
++ngx_log_param_grow_limit(
++    ngx_conf_t *cf, ngx_log_t *log, u_char *name, u_char *value_)
++{
++    ngx_str_t str_value = {ngx_strlen(value_), value_};
++    ssize_t value;
++
++    value = ngx_parse_size(&str_value);
++    if (value == NGX_ERROR) {
++        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
++                           "cannot parse \"%s\" parameter value: \"%s\"",
++                           name, value_);
++        return NGX_CONF_ERROR;
++    }
++    log->grow_limit = value;
++    return NGX_CONF_OK;
++}
+ 
+ static char *
+ ngx_log_set_params(ngx_conf_t *cf, ngx_log_t *log)
+@@ -594,6 +733,24 @@ ngx_log_set_params(ngx_conf_t *cf, ngx_log_t *log)
+     return NGX_CONF_OK;
+ }
+ 
++static void *
++ngx_log_module_create_conf(ngx_cycle_t *cycle)
++{
++    ngx_log_conf_t   *lcf;
++
++    lcf = ngx_pcalloc(cycle->pool, sizeof(*lcf));
++    if (lcf == NULL) {
++        return NULL;
++    }
++
++    return lcf;
++}
++
++static char *
++ngx_log_module_init_conf(ngx_cycle_t *cycle, void *conf)
++{
++    return NGX_CONF_OK;
++}
+ 
+ static char *
+ ngx_error_log(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+@@ -605,6 +762,111 @@ ngx_error_log(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+     return ngx_log_set_log(cf, &dummy);
+ }
+ 
++static ngx_int_t
++ngx_log_shm_init(ngx_shm_zone_t *shm_zone, void *data)
++{
++    ngx_slab_pool_t     *shpool;
++    ngx_list_t          *l;
++    ngx_log_t          **plog;
++    ngx_log_grow_t      *grow;
++    ngx_list_part_t     *part;
++    ngx_uint_t           i;
++
++    if (data != NULL) {
++        ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0,
++                      "shared memory is reused");
++        return NGX_ERROR;
++    }
++
++    shpool = (ngx_slab_pool_t *)shm_zone->shm.addr;
++
++    l = shm_zone->data;
++    part = &l->part;
++    plog = part->elts;
++
++    for (i = 0; /* void */ ; i++) {
++        ngx_log_t *log;
++
++        if (i >= part->nelts) {
++            if (part->next == NULL) {
++                break;
++            }
++            part = part->next;
++            plog = part->elts;
++            i = 0;
++        }
++
++        log = plog[i];
++        if ((grow = ngx_slab_calloc(shpool, sizeof(*grow))) == NULL) {
++            ngx_log_error(NGX_LOG_ERR, shm_zone->shm.log, 0,
++                          "cannot allocate %uz shared memory bytes", sizeof(*grow));
++            return NGX_ERROR;
++        }
++        log->grow = grow;
++    }
++
++    return (NGX_OK);
++}
++
++char *
++ngx_log_shm_add(ngx_conf_t *cf, ngx_log_t *log)
++{
++    ngx_log_conf_t     *lcf;
++    ngx_shm_zone_t     *shm_zone;
++    u_char             *ptr;
++    ngx_str_t           name;
++    size_t              name_size;
++    ngx_log_t         **plog;
++
++    lcf = (ngx_log_conf_t *)ngx_get_conf(cf->cycle->conf_ctx, ngx_errlog_module);
++
++    if (lcf->shm_zone_nlogs < NGX_LOG_SHM_DATAS_PER_PART) {
++        lcf->shm_zone_nlogs++;
++    } else {
++        lcf->shm_zone_idx++;
++        lcf->shm_zone_nlogs = 0;
++    }
++
++    name_size = sizeof(NGX_LOG_SHM_PREFIX) + 19;
++    name.data = ngx_palloc(cf->pool, name_size);
++    if (name.data == NULL) {
++        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
++                           "cannot allocate memory for shared memory name");
++        return NGX_CONF_ERROR;
++    }
++    ptr = ngx_snprintf(
++        name.data, name_size, "%s%ui", NGX_LOG_SHM_PREFIX, lcf->shm_zone_idx);
++    name.len = ptr - name.data;
++    shm_zone = ngx_shared_memory_add(
++        cf, &name, NGX_LOG_SHM_PART_SIZE, &ngx_errlog_module);
++    if (shm_zone == NULL) {
++        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
++                           "cannot add shared memory for %uz bytes",
++                           (size_t)NGX_LOG_SHM_PART_SIZE);
++        return NGX_CONF_ERROR;
++    }
++    if (shm_zone->init == NULL) {
++        ngx_list_t *l;
++
++        l = ngx_list_create(cf->temp_pool, 8, sizeof(ngx_log_t *));
++        if (l == NULL) {
++            ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
++                               "cannot allocate memory for a list");
++            return NGX_CONF_ERROR;
++        }
++
++        shm_zone->init = ngx_log_shm_init;
++        shm_zone->data = l;
++        shm_zone->noreuse = 1;
++    }
++    if ((plog = ngx_list_push(shm_zone->data)) == NULL) {
++        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "cannot insert to a list");
++        return NGX_CONF_ERROR;
++    }
++    *plog = log;
++
++    return NGX_CONF_OK;
++}
+ 
+ char *
+ ngx_log_set_log(ngx_conf_t *cf, ngx_log_t **head)
+@@ -628,6 +890,10 @@ ngx_log_set_log(ngx_conf_t *cf, ngx_log_t **head)
+         }
+     }
+ 
++    if (ngx_log_shm_add(cf, new_log) != NGX_CONF_OK) {
++        return NGX_CONF_ERROR;
++    }
++
+     value = cf->args->elts;
+ 
+     if (ngx_strcmp(value[1].data, "stderr") == 0) {
+diff --git a/src/core/ngx_log.h b/src/core/ngx_log.h
+index afb73bf7..ac498da8 100644
+--- a/src/core/ngx_log.h
++++ b/src/core/ngx_log.h
+@@ -46,6 +46,13 @@ typedef u_char *(*ngx_log_handler_pt) (ngx_log_t *log, u_char *buf, size_t len);
+ typedef void (*ngx_log_writer_pt) (ngx_log_t *log, ngx_uint_t level,
+     u_char *buf, size_t len);
+ 
++typedef struct {
++    ngx_atomic_t last_time;
++    ngx_atomic_t last_msgs_skipped;
++    ngx_atomic_t total_bytes;
++    ngx_atomic_t prev_total_bytes;
++    ngx_atomic_t total_bytes_skipped;
++} ngx_log_grow_t;
+ 
+ struct ngx_log_s {
+     ngx_uint_t           log_level;
+@@ -61,6 +68,9 @@ struct ngx_log_s {
+     ngx_log_writer_pt    writer;
+     void                *wdata;
+ 
++    size_t               grow_limit;
++    ngx_log_grow_t      *grow;
++
+     /*
+      * we declare "action" as "char *" because the actions are usually
+      * the static strings and in the "u_char *" case we have to override
+@@ -72,6 +82,11 @@ struct ngx_log_s {
+     ngx_log_t           *next;
+ };
+ 
++typedef struct {
++    ngx_uint_t           shm_zone_idx;
++    ngx_uint_t           shm_zone_nlogs;
++} ngx_log_conf_t;
++
+ 
+ #define NGX_MAX_ERROR_STR   2048
+ 
+-- 
+2.25.1
+
+
+From bfbb6b8df0a117ec352bd9e23a7d17718d2730e8 Mon Sep 17 00:00:00 2001
+From: Alexander Drozdov <aleksandr.drozdov@corp.mail.ru>
+Date: Tue, 7 Jul 2020 14:29:26 +0300
+Subject: [PATCH 6/7] RB-27104: log: create a global list of all the logs
+
+ngx_log_set_log():
+Link all created ngx_log_t object to a list to allow other
+modules to iterate them all.
+---
+ src/core/ngx_log.c | 7 +++++++
+ src/core/ngx_log.h | 2 ++
+ 2 files changed, 9 insertions(+)
+
+diff --git a/src/core/ngx_log.c b/src/core/ngx_log.c
+index 43f90445..e035775d 100644
+--- a/src/core/ngx_log.c
++++ b/src/core/ngx_log.c
+@@ -992,6 +992,13 @@ ngx_log_set_log(ngx_conf_t *cf, ngx_log_t **head)
+         ngx_log_insert(*head, new_log);
+     }
+ 
++    ngx_log_conf_t     *lcf;
++
++    lcf = (ngx_log_conf_t *)ngx_get_conf(cf->cycle->conf_ctx, ngx_errlog_module);
++
++    new_log->global_next = lcf->global_logs;
++    lcf->global_logs = new_log;
++
+     return NGX_CONF_OK;
+ }
+ 
+diff --git a/src/core/ngx_log.h b/src/core/ngx_log.h
+index ac498da8..a7fcc1db 100644
+--- a/src/core/ngx_log.h
++++ b/src/core/ngx_log.h
+@@ -80,11 +80,13 @@ struct ngx_log_s {
+     char                *action;
+ 
+     ngx_log_t           *next;
++    ngx_log_t           *global_next;
+ };
+ 
+ typedef struct {
+     ngx_uint_t           shm_zone_idx;
+     ngx_uint_t           shm_zone_nlogs;
++    ngx_log_t           *global_logs;
+ } ngx_log_conf_t;
+ 
+ 
+-- 
+2.25.1
+
+
+From 7547a01ee27d4f76c73e61a16dbbf6ba9aea8581 Mon Sep 17 00:00:00 2001
+From: Alexander Drozdov <aleksandr.drozdov@corp.mail.ru>
+Date: Fri, 10 Jul 2020 12:14:47 +0300
+Subject: [PATCH 7/7] RB-27104: log: mark logging limiting changes with a macro
+
+Define NGX_GRAPHITE_PATCH_LOG macro to ease feature detection
+for graphite module.
+---
+ src/core/ngx_log.h | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/src/core/ngx_log.h b/src/core/ngx_log.h
+index a7fcc1db..723007ac 100644
+--- a/src/core/ngx_log.h
++++ b/src/core/ngx_log.h
+@@ -12,6 +12,7 @@
+ #include <ngx_config.h>
+ #include <ngx_core.h>
+ 
++#define NGX_GRAPHITE_PATCH_LOG
+ 
+ #define NGX_LOG_STDERR            0
+ #define NGX_LOG_EMERG             1
+-- 
+2.25.1
+
