@@ -70,6 +70,9 @@ shared    |          | 2m            | shared memory size, increase in case of `
 buffer    |          | 64k           | network buffer size, increase in case of `too small buffer size` error
 package   |          | 1400          | maximum UDP packet size
 template  |          |               | template for graph name (default is $prefix.$host.$split.$param_$interval) 
+error\_log|          |               | path suffix for error logs graphs (\*)
+
+(\*): works only when nginx_error\_log\_limiting\*.patch is applied to the nginx source code
 
 Example (standard):
 
@@ -84,6 +87,14 @@ Example (custom):
 ```nginx
 http {
     graphite_config prefix=playground server=127.0.0.1 intervals=1m|5m|15m params=rps|request_time|upstream_time template=$prefix.$host.$split.$param_$interval;
+}
+```
+
+Example (error_log):
+
+```nginx
+http {
+    graphite_config prefix=playground server=127.0.0.1 error_log=log;
 }
 ```
 
