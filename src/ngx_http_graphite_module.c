@@ -445,8 +445,9 @@ ngx_http_graphite_search_log(
     ngx_http_graphite_main_conf_t *gmcf, const ngx_str_t *name)
 {
     ngx_array_t *logs = gmcf->logs;
+    ngx_uint_t i;
 
-    for (ngx_uint_t i = 0; i != logs->nelts; i++) {
+    for (i = 0; i != logs->nelts; i++) {
         ngx_http_graphite_log_t *gl = &((ngx_http_graphite_log_t*)logs->elts)[i];
 
         if (gl->name.len == name->len
@@ -466,9 +467,10 @@ ngx_http_graphite_init_error_log(ngx_conf_t *cf) {
         return NGX_OK;
 
     ngx_log_conf_t *lcf;
+    ngx_log_t *log;
     lcf = (ngx_log_conf_t*)ngx_get_conf(cf->cycle->conf_ctx, ngx_errlog_module);
 
-    for (ngx_log_t *log = lcf->global_logs; log != NULL;
+    for (log = lcf->global_logs; log != NULL;
          log = log->global_next) {
 
         ngx_str_t *file_name;
@@ -482,8 +484,9 @@ ngx_http_graphite_init_error_log(ngx_conf_t *cf) {
 
         u_char name_data[file_name->len];
         ngx_str_t log_name = {.len = sizeof(name_data), .data = name_data};
+        size_t i;
 
-        for (size_t i = 0; i != log_name.len; i++) {
+        for (i = 0; i != log_name.len; i++) {
             u_char c = file_name->data[i];
 
             if (!isalnum(c))
@@ -2866,8 +2869,9 @@ ngx_http_graphite_print_log(
     size_t total = 0;
     size_t skipped = 0;
     u_char *b = buffer;
+    ngx_uint_t i;
 
-    for (ngx_uint_t i = 0; i != gl->error_logs->nelts; i++) {
+    for (i = 0; i != gl->error_logs->nelts; i++) {
         ngx_log_t *log = ((ngx_log_t**)gl->error_logs->elts)[i];
         ngx_log_grow_t *grow = &log->shared->grow;
 
@@ -2956,7 +2960,8 @@ ngx_http_graphite_timer_handler(ngx_event_t *ev) {
     ngx_shmtx_unlock(&shpool->mutex);
 
 #ifdef NGX_LOG_LIMIT_ENABLED
-    for (ngx_uint_t i = 0; i != gmcf->logs->nelts; i++) {
+    ngx_uint_t i;
+    for (i = 0; i != gmcf->logs->nelts; i++) {
         ngx_http_graphite_log_t *gl = &((ngx_http_graphite_log_t*)gmcf->logs->elts)[i];
         b = ngx_http_graphite_print_log(gmcf, gl, ts, b, gmcf->buffer_size - (b - buffer->start));
     }
