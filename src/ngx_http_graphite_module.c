@@ -457,6 +457,25 @@ ngx_http_graphite_search_log(
     return NULL;
 }
 
+static void
+ngx_graphite_normalize_path(ngx_str_t *out, const ngx_str_t *in)
+{
+    size_t ci, co;
+
+    /* here we just remove repeated path separators */
+
+    for (ci = 0, co = 0; ci != in->len; ci++) {
+        u_char c = in->data[ci];
+
+        if (ngx_path_separator(c)) {
+            if (co != 0 && ngx_path_separator(out->data[co - 1]))
+                continue;
+        }
+        out->data[co++] = c;
+    }
+    out->len = co;
+}
+
 static ngx_int_t
 ngx_http_graphite_init_error_log(ngx_conf_t *cf) {
     ngx_http_graphite_main_conf_t *gmcf;
@@ -482,16 +501,40 @@ ngx_http_graphite_init_error_log(ngx_conf_t *cf) {
             continue;
         }
 
-        u_char name_data[file_name->len];
-        ngx_str_t log_name = {.len = sizeof(name_data), .data = name_data};
+        u_char name_data[NGX_MAX_PATH + file_name->len + 1];
+        ngx_str_t log_name = {.data = name_data};
+
+        if (ngx_path_separator(file_name->data[0])) {
+            ngx_graphite_normalize_path(&log_name, file_name);
+        } else {
+            size_t cwd_len;
+
+            if (ngx_getcwd(name_data, NGX_MAX_PATH) == 0) {
+                ngx_conf_log_error(
+                    NGX_LOG_ERR, cf, 0, ngx_getcwd_n "failed");
+                return NGX_ERROR;
+            }
+            cwd_len = ngx_strlen(name_data);
+            name_data[cwd_len] = '/';
+            ngx_memcpy(
+                name_data + cwd_len + 1, file_name->data, file_name->len);
+            log_name.len = cwd_len + file_name->len + 1;
+
+            ngx_graphite_normalize_path(&log_name, &log_name);
+        }
+
         size_t i;
 
-        for (i = 0; i != log_name.len; i++) {
-            u_char c = file_name->data[i];
+        /* remove the first path separator */
+        log_name.data++;
+        log_name.len--;
 
-            if (!isalnum(c))
-                c = '_';
-            log_name.data[i] = c;
+        for (i = 0; i != log_name.len; i++) {
+            u_char c = log_name.data[i];
+
+            if (isalnum(c))
+                continue;
+            log_name.data[i] = (ngx_path_separator(c) ? '.' : '_');
         }
 
         ngx_http_graphite_log_t *gl;
