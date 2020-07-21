@@ -1,7 +1,7 @@
 From 5b4c58739a91cbe1b0d200b5df448fd29b4b8ce6 Mon Sep 17 00:00:00 2001
 From: Alexander Drozdov <aleksandr.drozdov@corp.mail.ru>
 Date: Thu, 25 Jun 2020 09:20:58 +0300
-Subject: [PATCH 1/6] RB-27104: log: refactor writing to error_log, part 1
+Subject: [PATCH 1/7] RB-27104: log: refactor writing to error_log, part 1
 
 ngx_log_error_core():
 We split code which checks if a message should be written to
@@ -110,7 +110,7 @@ index 8e9408df..c8a55581 100644
 From 18e5f6752fa27e28b15d4bf442b33b378950d116 Mon Sep 17 00:00:00 2001
 From: Alexander Drozdov <aleksandr.drozdov@corp.mail.ru>
 Date: Tue, 30 Jun 2020 12:20:56 +0300
-Subject: [PATCH 2/6] RB-27104: log: refactor writing to error_log, part 2
+Subject: [PATCH 2/7] RB-27104: log: refactor writing to error_log, part 2
 
 ngx_log_error_core_write():
 return NGX_DECLINED on a log message writing failure.
@@ -167,7 +167,7 @@ index c8a55581..858210ec 100644
 From aa5838f0334c01e56fca0b75032468cdfbe89637 Mon Sep 17 00:00:00 2001
 From: Alexander Drozdov <aleksandr.drozdov@corp.mail.ru>
 Date: Thu, 25 Jun 2020 14:10:46 +0300
-Subject: [PATCH 3/6] RB-27104: log: allow to load extra error_log parameters
+Subject: [PATCH 3/7] RB-27104: log: allow to load extra error_log parameters
 
 We renamed ngx_log_set_levels() to ngx_log_set_params() to allow
 the function to read not only log levels but also a list of extra
@@ -262,7 +262,7 @@ index 858210ec..53ad8d82 100644
 From a6e4a153d14cdd42a93da3e1dd915ea951efe060 Mon Sep 17 00:00:00 2001
 From: Alexander Drozdov <aleksandr.drozdov@corp.mail.ru>
 Date: Thu, 25 Jun 2020 20:38:36 +0300
-Subject: [PATCH 4/6] RB-27104: log: add error_log grow limit support
+Subject: [PATCH 4/7] RB-27104: log: add error_log grow limit support
 
 Add 'grow_limit' parameter to error_log directive.
 The parameter sets an error_log grow limit, in bytes per second.
@@ -700,7 +700,7 @@ index afb73bf7..905b9bd1 100644
 From 25add45a2218c6c20af52a1032fa048755ba4bb0 Mon Sep 17 00:00:00 2001
 From: Alexander Drozdov <aleksandr.drozdov@corp.mail.ru>
 Date: Tue, 7 Jul 2020 14:29:26 +0300
-Subject: [PATCH 5/6] RB-27104: log: create a global list of all the logs
+Subject: [PATCH 5/7] RB-27104: log: create a global list of all the logs
 
 ngx_log_set_log():
 Link all created ngx_log_t object to a list to allow other
@@ -756,7 +756,7 @@ index 905b9bd1..aa568e75 100644
 From 4b4188c7950d2f07c82ef1fc365e5a69c4c3801d Mon Sep 17 00:00:00 2001
 From: Alexander Drozdov <aleksandr.drozdov@corp.mail.ru>
 Date: Fri, 10 Jul 2020 12:14:47 +0300
-Subject: [PATCH 6/6] RB-27104: log: mark logging limiting changes with a macro
+Subject: [PATCH 6/7] RB-27104: log: mark logging limiting changes with a macro
 
 Define NGX_LOG_LIMIT_ENABLED macro to ease feature detection
 for other modules.
@@ -776,6 +776,34 @@ index aa568e75..4dacfe75 100644
  
  #define NGX_LOG_STDERR            0
  #define NGX_LOG_EMERG             1
+-- 
+2.25.1
+
+
+From 9a4ac5128de5861b2d3129f471400bc4c4058883 Mon Sep 17 00:00:00 2001
+From: Alexander Drozdov <aleksandr.drozdov@corp.mail.ru>
+Date: Tue, 21 Jul 2020 12:57:08 +0300
+Subject: [PATCH 7/7] RB-27104: log: change 'N messages skipped' message
+ formatting
+
+Remove square brackets in 'N messages skipped' log messages.
+---
+ src/core/ngx_log.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/core/ngx_log.c b/src/core/ngx_log.c
+index 26952f5d..e1307553 100644
+--- a/src/core/ngx_log.c
++++ b/src/core/ngx_log.c
+@@ -165,7 +165,7 @@ ngx_log_error_core_write_skipped(
+     p = ngx_slprintf(p, last, "%P#" NGX_TID_T_FMT ": ",
+                     ngx_log_pid, ngx_log_tid);
+ 
+-    p = ngx_slprintf(p, last, "[%uz messages skipped]", last_msgs_skipped);
++    p = ngx_slprintf(p, last, "%uz messages skipped", last_msgs_skipped);
+ 
+     if (p > last - NGX_LINEFEED_SIZE) {
+         p = last - NGX_LINEFEED_SIZE;
 -- 
 2.25.1
 
