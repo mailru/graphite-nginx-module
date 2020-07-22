@@ -534,7 +534,7 @@ ngx_http_graphite_init_error_log(ngx_conf_t *cf) {
 
             if (isalnum(c))
                 continue;
-            log_name.data[i] = (ngx_path_separator(c) ? '.' : '_');
+            log_name.data[i] = '_';
         }
 
         ngx_http_graphite_log_t *gl;
