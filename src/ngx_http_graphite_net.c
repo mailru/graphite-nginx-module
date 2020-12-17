@@ -57,7 +57,8 @@ ngx_http_graphite_net_send_udp(ngx_http_graphite_main_conf_t *gmcf, ngx_log_t *l
 
     if (ngx_http_graphite_net_connect_udp(gmcf, log) != NGX_OK) {
         ngx_log_error(NGX_LOG_ERR, log, 0, "graphite connect to %V failed", &gmcf->server.name);
-        goto failed;
+        gmcf->connection = NULL;
+        return NGX_ERROR;
     }
 
     gmcf->connection->data = gmcf;
