@@ -1164,12 +1164,17 @@ ngx_http_graphite_add_param_to_params(ngx_http_graphite_context_t *context, ngx_
 static char *
 ngx_http_graphite_config(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
+    ngx_http_graphite_main_conf_t *gmcf = conf;
+
+    if (gmcf->enable) {
+            ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "graphite duplicate config");
+            return NGX_CONF_ERROR;
+    }
+
     ngx_http_graphite_context_t context = ngx_http_graphite_context_from_config(cf);
 
     if (ngx_http_graphite_parse_args(&context, cf->args, conf, ngx_http_graphite_config_args, CONFIG_ARGS_COUNT) == NGX_CONF_ERROR)
         return NGX_CONF_ERROR;
-
-    ngx_http_graphite_main_conf_t *gmcf = conf;
 
     if (gmcf->host.len == 0) {
         char host[HOST_LEN];
