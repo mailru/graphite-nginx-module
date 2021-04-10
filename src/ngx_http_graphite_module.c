@@ -5,6 +5,7 @@
 
 #include "ngx_http_graphite_module.h"
 #include "ngx_http_graphite_net.h"
+#include "ngx_http_graphite_bsearch.h"
 
 typedef struct {
     ngx_array_t *default_data_template;
@@ -1424,23 +1425,30 @@ ngx_http_graphite_data(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
     return NGX_CONF_OK;
 }
 
+static int
+ngx_http_graphite_search_param_compare(const void *name_, const void *internal_)
+{
+    const ngx_str_t *name = name_;
+    const ngx_http_graphite_internal_t *internal = internal_;
+
+    if (name->len < internal->name.len)
+        return -1;
+    if (name->len > internal->name.len)
+        return 1;
+    return ngx_strncmp(name->data, internal->name.data, name->len);
+}
+
 static ngx_int_t
 ngx_http_graphite_search_param(const ngx_http_graphite_array_t *internals, const ngx_str_t *name, ngx_int_t *found) {
-    size_t i;
-    for (i = 0; i < internals->nelts; i++) {
-        ngx_http_graphite_internal_t *internal = &((ngx_http_graphite_internal_t*)internals->elts)[i];
-        size_t min_len = internal->name.len < name->len ? internal->name.len : name->len;
-        ngx_int_t r = ngx_strncmp(internal->name.data, name->data, min_len);
+    ngx_http_graphite_internal_t *internal;
+    int found_;
 
-        if (r == 0 && internal->name.len == name->len) {
-            *found = 1;
-            return i;
-        }
+    internal = ngx_graphite_bsearch(
+        name, internals->elts, internals->nelts, sizeof(*internal),
+        ngx_http_graphite_search_param_compare, &found_);
 
-        if (r > 0)
-            return i;
-    }
-    return i;
+    *found = found_;
+    return internal - (ngx_http_graphite_internal_t *)internals->elts;
 }
 
 static ngx_int_t
