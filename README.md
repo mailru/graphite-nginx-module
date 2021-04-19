@@ -210,7 +210,18 @@ Example: see below.
 Nginx API for Lua
 =================
 
-**syntax:** *ngx.graphite(&lt;name&gt;,&lt;value&gt;[,&lt;config&gt;])*
+**syntax:** *ngx.graphite.param(&lt;name&gt;)*
+
+Get a link on a graphite parameter name, to use it in place of the name for the functions below.
+The link is valid up to nginx reload. After getting the link of a parameter, you can still pass
+the parameter name to the functions below. You can get the link of a parameter multiple times,
+you'll always get the same object by the same name (a lightuserdata). Functions access parameters
+information by link faster than by name.
+
+*Available after applying patch to lua-nginx-module.* The feature is present in the patch for lua
+module v0.10.12. See [the installation instructions](#build-nginx-with-lua-and-graphite-modules).
+
+**syntax:** *ngx.graphite(&lt;name_or_link&gt;,&lt;value&gt;[,&lt;config&gt;])*
 
 Write stat value into aggregator function. Floating point numbers accepted in `value`.
 
@@ -234,8 +245,9 @@ location /foo/ {
         ngx.graphite("lua.foo_sum", 0.01)
         ngx.graphite("lua.foo_rps", 1)
         ngx.graphite("lua.foo_avg", ngx.var.request_uri:len())
-        ngx.graphite("lua.foo_gauge", 10)
-        ngx.graphite("lua.foo_gauge", -2)
+        local foo_gauge_link = ngx.graphite.param("lua.foo_gauge")
+        ngx.graphite(foo_gauge_link, 10)
+        ngx.graphite(foo_gauge_link, -2)
         ngx.graphite("lua.auto_rps", 1, "aggregate=persec interval=1m percentile=50|90|99")
         ngx.say("hello")
     ';
@@ -249,13 +261,13 @@ If you choose the second option, the data for this graph will not be sent until 
 If you do not declare graph using `graphite_param` command then memory for the graph will be allocated dynamically in module's shared memory.
 If module's shared memory is exhausted while nginx is running, no new graphs will be created and an error message will be logged.
 
-**syntax:** *ngx.graphite.get(&lt;name&gt;)*
+**syntax:** *ngx.graphite.get(&lt;name_or_link&gt;)*
 
-Get value of the gauge param with specified `name`.
+Get value of the gauge param with specified `name_or_link`.
 
 **syntax:** *ngx.graphite.set(&lt;name&gt;,&lt;value&gt;)*
 
-Set `value` to the gauge param with specified `name`.
+Set `value` to the gauge param with specified `name_or_link`.
 
 Params
 ======

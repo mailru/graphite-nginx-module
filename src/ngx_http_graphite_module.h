@@ -81,8 +81,16 @@ typedef struct {
 
 } ngx_http_graphite_main_conf_t;
 
+typedef struct ngx_http_graphite_link ngx_http_graphite_link_t;
+
+const ngx_http_graphite_link_t *ngx_http_graphite_link(ngx_http_request_t *r, const ngx_str_t *name);
+
 ngx_int_t ngx_http_graphite(ngx_http_request_t *r, const ngx_str_t *name, double value);
+ngx_int_t ngx_http_graphite_by_link(ngx_http_request_t *r, const ngx_http_graphite_link_t *link, double value);
+
 double ngx_http_graphite_get(ngx_http_request_t *r, const ngx_str_t *name);
+double ngx_http_graphite_get_by_link(ngx_http_request_t *r, const ngx_http_graphite_link_t *link);
 ngx_int_t ngx_http_graphite_set(ngx_http_request_t *r, const ngx_str_t *name, double value);
+ngx_int_t ngx_http_graphite_set_by_link(ngx_http_request_t *r, const ngx_http_graphite_link_t *link, double value);
 
 #endif
