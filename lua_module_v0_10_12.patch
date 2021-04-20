@@ -1,5 +1,19 @@
+From 9a1e0a0ec78c8281e1ccd006554b1c3dca2742a8 Mon Sep 17 00:00:00 2001
+From: Mikhail Kirichenko <m.kirichenko@corp.mail.ru>
+Date: Mon, 19 Apr 2021 20:21:23 +0300
+Subject: [PATCH 1/2] initial patch
+
+---
+ config                      |   2 +
+ src/ngx_http_lua_graphite.c | 117 ++++++++++++++++++++++++++++++++++++
+ src/ngx_http_lua_graphite.h |  11 ++++
+ src/ngx_http_lua_util.c     |  13 +++-
+ 4 files changed, 142 insertions(+), 1 deletion(-)
+ create mode 100644 src/ngx_http_lua_graphite.c
+ create mode 100644 src/ngx_http_lua_graphite.h
+
 diff --git a/config b/config
-index 044deb9..46d8f23 100644
+index 044deb97..46d8f23b 100644
 --- a/config
 +++ b/config
 @@ -360,6 +360,7 @@ HTTP_LUA_SRCS=" \
@@ -20,7 +34,7 @@ index 044deb9..46d8f23 100644
  
 diff --git a/src/ngx_http_lua_graphite.c b/src/ngx_http_lua_graphite.c
 new file mode 100644
-index 0000000..20812f9
+index 00000000..9178553d
 --- /dev/null
 +++ b/src/ngx_http_lua_graphite.c
 @@ -0,0 +1,117 @@
@@ -143,7 +157,7 @@ index 0000000..20812f9
 +}
 diff --git a/src/ngx_http_lua_graphite.h b/src/ngx_http_lua_graphite.h
 new file mode 100644
-index 0000000..cf76efa
+index 00000000..cf76efa3
 --- /dev/null
 +++ b/src/ngx_http_lua_graphite.h
 @@ -0,0 +1,11 @@
@@ -159,7 +173,7 @@ index 0000000..cf76efa
 +#endif /* NGX_HTTP_LUA_GRAPHITE_H */
 +
 diff --git a/src/ngx_http_lua_util.c b/src/ngx_http_lua_util.c
-index f7a537e..53455a6 100644
+index f7a537ee..6292d8b5 100644
 --- a/src/ngx_http_lua_util.c
 +++ b/src/ngx_http_lua_util.c
 @@ -53,6 +53,7 @@
@@ -204,3 +218,151 @@ index f7a537e..53455a6 100644
  
  #if (NGX_PCRE)
              /* XXX: work-around to nginx regex subsystem */
+-- 
+2.25.1
+
+
+From 7056ca638b03c2a8f104590cb56ca68cf5a6e5c8 Mon Sep 17 00:00:00 2001
+From: Alexander Drozdov <aleksandr.drozdov@corp.mail.ru>
+Date: Mon, 19 Apr 2021 20:09:05 +0300
+Subject: [PATCH 2/2] add ngx.graphite.param feature
+
+Add ngx.graphite.param() function that returns an object by graphite
+parameter name. We name it 'parameter link'. The link then
+can be passed to ngx.graphite(), ngx.graphite.get() &
+ngx.graphite.set() in place of the name.
+---
+ src/ngx_http_lua_graphite.c | 81 ++++++++++++++++++++++++++++---------
+ 1 file changed, 63 insertions(+), 18 deletions(-)
+
+diff --git a/src/ngx_http_lua_graphite.c b/src/ngx_http_lua_graphite.c
+index 9178553d..d190592c 100644
+--- a/src/ngx_http_lua_graphite.c
++++ b/src/ngx_http_lua_graphite.c
+@@ -10,6 +10,7 @@
+ 
+ 
+ static int ngx_http_lua_graphite(lua_State *L);
++static int ngx_http_lua_graphite_param(lua_State *L);
+ static int ngx_http_lua_graphite_get(lua_State *L);
+ static int ngx_http_lua_graphite_set(lua_State *L);
+ 
+@@ -23,6 +24,9 @@ ngx_http_lua_inject_graphite_api(lua_State *L)
+     lua_setfield(L, -2, "__call");
+     lua_setmetatable(L, -2);
+ 
++    lua_pushcfunction(L, ngx_http_lua_graphite_param);
++    lua_setfield(L, -2, "param");
++
+     lua_pushcfunction(L, ngx_http_lua_graphite_get);
+     lua_setfield(L, -2, "get");
+ 
+@@ -48,18 +52,47 @@ ngx_http_lua_graphite(lua_State *L) {
+         return luaL_error(L, "no request object found");
+     }
+ 
+-    ngx_str_t name;
+-    name.data = (u_char*)lua_tolstring(L, 2, &name.len);
+-    if (name.data == NULL)
+-        return 0;
+-
+-    double value = lua_tonumber(L, 3);
++    if (lua_islightuserdata(L, 2)) {
++        const ngx_http_graphite_link_t *link = lua_touserdata(L, 2);
+ 
+-    ngx_http_graphite(r, &name, value);
++        ngx_http_graphite_by_link(r, link, lua_tonumber(L, 3));
++    }
++    else {
++        ngx_str_t name;
++        name.data = (u_char*)lua_tolstring(L, 2, &name.len);
++        if (name.data == NULL)
++            return 0;
++        ngx_http_graphite(r, &name, lua_tonumber(L, 3));
++    }
+ 
+     return 0;
+ }
+ 
++static int
++ngx_http_lua_graphite_param(lua_State *L) {
++
++    int n = lua_gettop(L);
++    if (n != 1) {
++        return luaL_error(L, "ngx.graphite.param expecting 1 argument got %d", n);
++    }
++
++    ngx_http_request_t *r;
++    r = ngx_http_lua_get_req(L);
++
++    if (r == NULL) {
++        return luaL_error(L, "no request object found");
++    }
++    ngx_str_t name;
++    const ngx_http_graphite_link_t *link;
++    name.data = (u_char*)lua_tolstring(L, 1, &name.len);
++    if (name.data == NULL || (link = ngx_http_graphite_link(r, &name)) == NULL) {
++        lua_pushnil(L);
++        return 1;
++    }
++
++    lua_pushlightuserdata(L, (void *)link);
++    return 1;
++}
+ 
+ static int
+ ngx_http_lua_graphite_get(lua_State *L) {
+@@ -76,12 +109,19 @@ ngx_http_lua_graphite_get(lua_State *L) {
+         return luaL_error(L, "no request object found");
+     }
+ 
+-    ngx_str_t name;
+-    name.data = (u_char*)lua_tolstring(L, 1, &name.len);
+-    if (name.data == NULL)
+-        return 0;
++    double value;
++    if (lua_islightuserdata(L, 1)) {
++        const ngx_http_graphite_link_t *link = lua_touserdata(L, 1);
+ 
+-    double value = ngx_http_graphite_get(r, &name);
++        value = ngx_http_graphite_get_by_link(r, link);
++    }
++    else {
++        ngx_str_t name;
++        name.data = (u_char*)lua_tolstring(L, 1, &name.len);
++        if (name.data == NULL)
++            return 0;
++        value = ngx_http_graphite_get(r, &name);
++    }
+ 
+     lua_pushnumber(L, value);
+ 
+@@ -104,14 +144,19 @@ ngx_http_lua_graphite_set(lua_State *L) {
+         return luaL_error(L, "no request object found");
+     }
+ 
+-    ngx_str_t name;
+-    name.data = (u_char*)lua_tolstring(L, 1, &name.len);
+-    if (name.data == NULL)
+-        return 0;
+-
+     double value = lua_tonumber(L, 2);
++    if (lua_islightuserdata(L, 1)) {
++        const ngx_http_graphite_link_t *link = lua_touserdata(L, 1);
++        ngx_http_graphite_set_by_link(r, link, value);
++    }
++    else {
++        ngx_str_t name;
++        name.data = (u_char*)lua_tolstring(L, 1, &name.len);
++        if (name.data == NULL)
++            return 0;
+ 
+-    ngx_http_graphite_set(r, &name, value);
++        ngx_http_graphite_set(r, &name, value);
++    }
+ 
+     return 0;
+ }
+-- 
+2.25.1
+
