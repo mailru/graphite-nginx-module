@@ -215,8 +215,9 @@ Nginx API for Lua
 Get a link on a graphite parameter name, to use it in place of the name for the functions below.
 The link is valid up to nginx reload. After getting the link of a parameter, you can still pass
 the parameter name to the functions below. You can get the link of a parameter multiple times,
-you'll always get the same object by the same name (a lightuserdata). Functions access parameters
-information by link faster than by name.
+you'll always get the same object by the same name (a lightuserdata). The function returns false
+if the parameter specified by name doesn't exist. The function returns nil on link getting errors.
+Functions access parameters information by link faster than by name.
 
 *Available after applying patch to lua-nginx-module.* The feature is present in the patch for lua
 module v0.10.12. See [the installation instructions](#build-nginx-with-lua-and-graphite-modules).
