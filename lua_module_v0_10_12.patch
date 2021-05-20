@@ -222,7 +222,7 @@ index f7a537ee..6292d8b5 100644
 2.25.1
 
 
-From 7056ca638b03c2a8f104590cb56ca68cf5a6e5c8 Mon Sep 17 00:00:00 2001
+From 3d79e3abc06f84b7f8ead84fdef891c2e0f732c9 Mon Sep 17 00:00:00 2001
 From: Alexander Drozdov <aleksandr.drozdov@corp.mail.ru>
 Date: Mon, 19 Apr 2021 20:09:05 +0300
 Subject: [PATCH 2/2] add ngx.graphite.param feature
@@ -232,11 +232,11 @@ parameter name. We name it 'parameter link'. The link then
 can be passed to ngx.graphite(), ngx.graphite.get() &
 ngx.graphite.set() in place of the name.
 ---
- src/ngx_http_lua_graphite.c | 81 ++++++++++++++++++++++++++++---------
- 1 file changed, 63 insertions(+), 18 deletions(-)
+ src/ngx_http_lua_graphite.c | 90 +++++++++++++++++++++++++++++--------
+ 1 file changed, 72 insertions(+), 18 deletions(-)
 
 diff --git a/src/ngx_http_lua_graphite.c b/src/ngx_http_lua_graphite.c
-index 9178553d..d190592c 100644
+index 9178553d..e27d1543 100644
 --- a/src/ngx_http_lua_graphite.c
 +++ b/src/ngx_http_lua_graphite.c
 @@ -10,6 +10,7 @@
@@ -257,7 +257,7 @@ index 9178553d..d190592c 100644
      lua_pushcfunction(L, ngx_http_lua_graphite_get);
      lua_setfield(L, -2, "get");
  
-@@ -48,18 +52,47 @@ ngx_http_lua_graphite(lua_State *L) {
+@@ -48,18 +52,50 @@ ngx_http_lua_graphite(lua_State *L) {
          return luaL_error(L, "no request object found");
      }
  
@@ -265,14 +265,17 @@ index 9178553d..d190592c 100644
 -    name.data = (u_char*)lua_tolstring(L, 2, &name.len);
 -    if (name.data == NULL)
 -        return 0;
--
--    double value = lua_tonumber(L, 3);
-+    if (lua_islightuserdata(L, 2)) {
++    int type = lua_type(L, 1);
++    if (type == LUA_TLIGHTUSERDATA) {
 +        const ngx_http_graphite_link_t *link = lua_touserdata(L, 2);
  
+-    double value = lua_tonumber(L, 3);
+-
 -    ngx_http_graphite(r, &name, value);
 +        ngx_http_graphite_by_link(r, link, lua_tonumber(L, 3));
 +    }
++    else if (type == LUA_TBOOLEAN)
++        return 0;
 +    else {
 +        ngx_str_t name;
 +        name.data = (u_char*)lua_tolstring(L, 2, &name.len);
@@ -302,7 +305,7 @@ index 9178553d..d190592c 100644
 +    const ngx_http_graphite_link_t *link;
 +    name.data = (u_char*)lua_tolstring(L, 1, &name.len);
 +    if (name.data == NULL || (link = ngx_http_graphite_link(r, &name)) == NULL) {
-+        lua_pushnil(L);
++        lua_pushboolean(L, 0);
 +        return 1;
 +    }
 +
@@ -312,7 +315,7 @@ index 9178553d..d190592c 100644
  
  static int
  ngx_http_lua_graphite_get(lua_State *L) {
-@@ -76,12 +109,19 @@ ngx_http_lua_graphite_get(lua_State *L) {
+@@ -76,12 +112,22 @@ ngx_http_lua_graphite_get(lua_State *L) {
          return luaL_error(L, "no request object found");
      }
  
@@ -321,12 +324,15 @@ index 9178553d..d190592c 100644
 -    if (name.data == NULL)
 -        return 0;
 +    double value;
-+    if (lua_islightuserdata(L, 1)) {
++    int type = lua_type(L, 1);
++    if (type == LUA_TLIGHTUSERDATA) {
 +        const ngx_http_graphite_link_t *link = lua_touserdata(L, 1);
  
 -    double value = ngx_http_graphite_get(r, &name);
 +        value = ngx_http_graphite_get_by_link(r, link);
 +    }
++    else if (type == LUA_TBOOLEAN)
++        return 0;
 +    else {
 +        ngx_str_t name;
 +        name.data = (u_char*)lua_tolstring(L, 1, &name.len);
@@ -337,7 +343,7 @@ index 9178553d..d190592c 100644
  
      lua_pushnumber(L, value);
  
-@@ -104,14 +144,19 @@ ngx_http_lua_graphite_set(lua_State *L) {
+@@ -104,14 +150,22 @@ ngx_http_lua_graphite_set(lua_State *L) {
          return luaL_error(L, "no request object found");
      }
  
@@ -347,10 +353,13 @@ index 9178553d..d190592c 100644
 -        return 0;
 -
      double value = lua_tonumber(L, 2);
-+    if (lua_islightuserdata(L, 1)) {
++    int type = lua_type(L, 1);
++    if (type == LUA_TLIGHTUSERDATA) {
 +        const ngx_http_graphite_link_t *link = lua_touserdata(L, 1);
 +        ngx_http_graphite_set_by_link(r, link, value);
 +    }
++    else if (type == LUA_TBOOLEAN)
++        return 0;
 +    else {
 +        ngx_str_t name;
 +        name.data = (u_char*)lua_tolstring(L, 1, &name.len);
