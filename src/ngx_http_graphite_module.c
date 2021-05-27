@@ -352,7 +352,7 @@ typedef struct ngx_http_graphite_internal_s {
 
 typedef struct ngx_http_graphite_internal_value_s {
     time_t ts;
-    ngx_uint_t internal;
+    ngx_http_graphite_internal_t *internal;
     double value;
 } ngx_http_graphite_internal_value_t;
 
@@ -654,7 +654,7 @@ ngx_http_graphite_create_main_conf(ngx_conf_t *cf) {
 
     gmcf->storage->allocator = allocator;
     gmcf->storage->params = ngx_http_graphite_array_create(allocator, 1, sizeof(ngx_http_graphite_param_t));
-    gmcf->storage->internals = ngx_http_graphite_array_create(allocator, 1, sizeof(ngx_http_graphite_internal_t));
+    gmcf->storage->internals = ngx_http_graphite_array_create(allocator, 1, sizeof(ngx_http_graphite_internal_t*));
     gmcf->storage->metrics = ngx_http_graphite_array_create(allocator, 1, sizeof(ngx_http_graphite_metric_t));
     gmcf->storage->gauges = ngx_http_graphite_array_create(allocator, 1, sizeof(ngx_http_graphite_gauge_t));
     gmcf->storage->statistics = ngx_http_graphite_array_create(allocator, 1, sizeof(ngx_http_graphite_statistic_t));
@@ -1426,10 +1426,11 @@ ngx_http_graphite_data(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
 }
 
 static int
-ngx_http_graphite_search_param_compare(const void *name_, const void *internal_)
+ngx_http_graphite_search_param_compare(const void *name_, const void *pinternal_)
 {
     const ngx_str_t *name = name_;
-    const ngx_http_graphite_internal_t *internal = internal_;
+    const ngx_http_graphite_internal_t * const *pinternal = pinternal_;
+    const ngx_http_graphite_internal_t *internal = *pinternal;
 
     if (name->len < internal->name.len)
         return -1;
@@ -1438,49 +1439,40 @@ ngx_http_graphite_search_param_compare(const void *name_, const void *internal_)
     return ngx_strncmp(name->data, internal->name.data, name->len);
 }
 
-static ngx_int_t
-ngx_http_graphite_search_param(const ngx_http_graphite_array_t *internals, const ngx_str_t *name, ngx_int_t *found) {
-    ngx_http_graphite_internal_t *internal;
-    int found_;
+static ngx_http_graphite_internal_t *
+ngx_http_graphite_search_param(const ngx_http_graphite_array_t *internals, const ngx_str_t *name, ngx_uint_t *idx) {
+    ngx_http_graphite_internal_t **pinternal;
+    int found;
 
-    internal = ngx_graphite_bsearch(
-        name, internals->elts, internals->nelts, sizeof(*internal),
-        ngx_http_graphite_search_param_compare, &found_);
+    pinternal = ngx_graphite_bsearch(
+        name, internals->elts, internals->nelts, sizeof(*pinternal),
+        ngx_http_graphite_search_param_compare, &found);
 
-    *found = found_;
-    return internal - (ngx_http_graphite_internal_t *)internals->elts;
-}
+    if (idx != NULL)
+        *idx = pinternal - (ngx_http_graphite_internal_t**)internals->elts;
 
-static const ngx_http_graphite_link_t *
-ngx_http_graphite_param_idx2link(size_t idx) {
-
-    return (void *)(idx + 1);
-}
-
-static size_t
-ngx_http_graphite_param_link2idx(const ngx_http_graphite_link_t *link) {
-
-    return (size_t)(void *)link - 1;
+    return found ? *pinternal : NULL;
 }
 
 static ngx_http_graphite_internal_t *
-ngx_http_graphite_link2int(ngx_http_graphite_storage_t *storage, const ngx_http_graphite_link_t *link) {
+ngx_http_graphite_link2int(const ngx_http_graphite_link_t *link) {
 
-    size_t i = ngx_http_graphite_param_link2idx(link);
+    return (ngx_http_graphite_internal_t*)link;
+}
 
-    return &((ngx_http_graphite_internal_t*)storage->internals->elts)[i];
+static const ngx_http_graphite_link_t *
+ngx_http_graphite_int2link(ngx_http_graphite_internal_t *internal) {
+
+    return (const ngx_http_graphite_link_t*)internal;
 }
 
 static const ngx_http_graphite_link_t *
 ngx_http_graphite_search_param_link(const ngx_http_graphite_array_t *internals, const ngx_str_t *name) {
 
-    size_t internal;
-    ngx_int_t found;
+    ngx_http_graphite_internal_t *internal;
 
-    internal = ngx_http_graphite_search_param(internals, name, &found);
-    if (!found)
-        return NULL;
-    return ngx_http_graphite_param_idx2link(internal);
+    internal = ngx_http_graphite_search_param(internals, name, NULL);
+    return ngx_http_graphite_int2link(internal);
 }
 
 static ngx_int_t
@@ -1547,16 +1539,17 @@ ngx_http_graphite_add_internal(ngx_http_graphite_context_t *context, const ngx_h
 
     ngx_http_graphite_storage_t *storage = context->storage;
 
-    ngx_int_t found = 0;
-    ngx_uint_t i = ngx_http_graphite_search_param(storage->internals, &param->name, &found);
+    ngx_uint_t i;
+    ngx_http_graphite_internal_t *internal;
+    internal = ngx_http_graphite_search_param(storage->internals, &param->name, &i);
 
     ngx_http_graphite_data_t data;
-    if (!found) {
+    if (internal == NULL) {
         if (ngx_http_graphite_init_data(context, &data) == NGX_ERROR)
             return NGX_ERROR;
     }
     else
-        data = ((ngx_http_graphite_internal_t*)storage->internals->elts)[i].data;
+        data = internal->data;
 
     ngx_http_graphite_param_t new_param = *param;
 
@@ -1577,16 +1570,24 @@ ngx_http_graphite_add_internal(ngx_http_graphite_context_t *context, const ngx_h
             return NGX_ERROR;
     }
 
-    if (!found) {
-        ngx_http_graphite_internal_t *internal = ngx_http_graphite_array_push(storage->internals);
-        if (internal == NULL) {
+    if (internal == NULL) {
+        ngx_http_graphite_allocator_t *allocator = storage->allocator;
+
+        if ((internal = ngx_http_graphite_allocator_alloc(allocator, sizeof(*internal))) == NULL) {
             ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite can't alloc memory");
             return NGX_ERROR;
         }
 
-        ngx_memmove(&((ngx_http_graphite_internal_t*)storage->internals->elts)[i + 1], &((ngx_http_graphite_internal_t*)storage->internals->elts)[i], (storage->internals->nelts - i - 1) * sizeof(ngx_http_graphite_internal_t));
+        ngx_http_graphite_internal_t **pinternal = ngx_http_graphite_array_push(storage->internals);
+        if (pinternal == NULL) {
+            ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite can't alloc memory");
+            ngx_http_graphite_allocator_free(allocator, internal);
+            return NGX_ERROR;
+        }
 
-        internal = &((ngx_http_graphite_internal_t*)storage->internals->elts)[i];
+        ngx_memmove(&((ngx_http_graphite_internal_t**)storage->internals->elts)[i + 1], &((ngx_http_graphite_internal_t**)storage->internals->elts)[i], (storage->internals->nelts - i - 1) * sizeof(ngx_http_graphite_internal_t*));
+
+        ((ngx_http_graphite_internal_t**)storage->internals->elts)[i] = internal;
         internal->name = param->name;
         internal->data = data;
     }
@@ -2396,7 +2397,7 @@ ngx_http_graphite_shared_init(ngx_shm_zone_t *shm_zone, void *data)
         sizeof(ngx_http_graphite_gauge_t) * (gmcf->storage->gauges->nelts) +
         sizeof(ngx_http_graphite_statistic_t) * (gmcf->storage->statistics->nelts) +
         sizeof(ngx_http_graphite_param_t) * (gmcf->storage->params->nelts) +
-        sizeof(ngx_http_graphite_internal_t) * (gmcf->storage->internals->nelts) +
+        (sizeof(ngx_http_graphite_internal_t*) + sizeof(ngx_http_graphite_internal_t)) * (gmcf->storage->internals->nelts) +
         sizeof(ngx_http_graphite_metric_data_t) * (gmcf->storage->max_interval + 1) * gmcf->storage->metrics->nelts +
         sizeof(ngx_http_graphite_gauge_data_t) * gmcf->storage->gauges->nelts +
         sizeof(ngx_http_graphite_statistic_data_t) * gmcf->storage->statistics->nelts);
@@ -2701,7 +2702,7 @@ ngx_http_graphite_handler(ngx_http_request_t *r) {
         size_t i;
         for (i = 0; i < reqctx->internal_values->nelts; i++) {
             const ngx_http_graphite_internal_value_t *internal_value = &(((ngx_http_graphite_internal_value_t*)reqctx->internal_values->elts)[i]);
-            ngx_http_graphite_internal_t *internal = &((ngx_http_graphite_internal_t*)storage->internals->elts)[internal_value->internal];
+            ngx_http_graphite_internal_t *internal = internal_value->internal;
             ngx_http_graphite_add_data_values(r, storage, internal_value->ts, &internal->data, &internal_value->value);
         }
     }
@@ -2709,7 +2710,7 @@ ngx_http_graphite_handler(ngx_http_request_t *r) {
    size_t i;
    for (i = 0; i < gmcf->internal_values->nelts; i++) {
         const ngx_http_graphite_internal_value_t *internal_value = &(((ngx_http_graphite_internal_value_t*)gmcf->internal_values->elts)[i]);
-        ngx_http_graphite_internal_t *internal = &((ngx_http_graphite_internal_t*)storage->internals->elts)[internal_value->internal];
+        ngx_http_graphite_internal_t *internal = internal_value->internal;
         ngx_http_graphite_add_data_values(r, storage, internal_value->ts, &internal->data, &internal_value->value);
     }
     gmcf->internal_values->nelts = 0;
@@ -2741,7 +2742,7 @@ ngx_http_graphite_by_link2(ngx_http_request_t *r, ngx_http_graphite_main_conf_t 
         return NGX_ERROR;
 
     internal_value->ts = ngx_time();
-    internal_value->internal = ngx_http_graphite_param_link2idx(link);
+    internal_value->internal = ngx_http_graphite_link2int(link);
     internal_value->value = value;
 
     return NGX_OK;
@@ -2809,7 +2810,7 @@ ngx_http_graphite_get_by_link2(ngx_slab_pool_t *shpool, const ngx_http_graphite_
         return 0;
 
     ngx_http_graphite_storage_t *storage = shpool->data;
-    ngx_http_graphite_internal_t *internal = ngx_http_graphite_link2int(storage, link);
+    ngx_http_graphite_internal_t *internal = ngx_http_graphite_link2int(link);
     double value = 0;
 
     ngx_shmtx_lock(&shpool->mutex);
@@ -2866,7 +2867,7 @@ ngx_http_graphite_set_by_link2(ngx_slab_pool_t *shpool, const ngx_http_graphite_
         return NGX_ERROR;
 
     ngx_http_graphite_storage_t *storage = shpool->data;
-    ngx_http_graphite_internal_t *internal = ngx_http_graphite_link2int(storage, link);
+    ngx_http_graphite_internal_t *internal = ngx_http_graphite_link2int(link);
 
     ngx_shmtx_lock(&shpool->mutex);
 
