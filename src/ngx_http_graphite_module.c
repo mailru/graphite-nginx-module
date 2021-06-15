@@ -1534,7 +1534,7 @@ ngx_http_graphite_parse_param_args(ngx_http_graphite_context_t *context, const n
     return r;
 }
 
-static ngx_int_t
+static ngx_http_graphite_internal_t *
 ngx_http_graphite_add_internal(ngx_http_graphite_context_t *context, const ngx_http_graphite_param_t *param) {
 
     ngx_http_graphite_storage_t *storage = context->storage;
@@ -1546,7 +1546,7 @@ ngx_http_graphite_add_internal(ngx_http_graphite_context_t *context, const ngx_h
     ngx_http_graphite_data_t data;
     if (internal == NULL) {
         if (ngx_http_graphite_init_data(context, &data) == NGX_ERROR)
-            return NGX_ERROR;
+            return NULL;
     }
     else
         data = internal->data;
@@ -1564,10 +1564,10 @@ ngx_http_graphite_add_internal(ngx_http_graphite_context_t *context, const ngx_h
 
         ngx_uint_t p = ngx_http_graphite_add_param_to_config(context, &new_param);
         if ((ngx_int_t)p == NGX_ERROR)
-            return NGX_ERROR;
+            return NULL;
 
         if (ngx_http_graphite_add_param_to_data(context, SPLIT_INTERNAL, p, &data) != NGX_CONF_OK)
-            return NGX_ERROR;
+            return NULL;
     }
 
     if (internal == NULL) {
@@ -1575,14 +1575,14 @@ ngx_http_graphite_add_internal(ngx_http_graphite_context_t *context, const ngx_h
 
         if ((internal = ngx_http_graphite_allocator_alloc(allocator, sizeof(*internal))) == NULL) {
             ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite can't alloc memory");
-            return NGX_ERROR;
+            return NULL;
         }
 
         ngx_http_graphite_internal_t **pinternal = ngx_http_graphite_array_push(storage->internals);
         if (pinternal == NULL) {
             ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite can't alloc memory");
             ngx_http_graphite_allocator_free(allocator, internal);
-            return NGX_ERROR;
+            return NULL;
         }
 
         ngx_memmove(&((ngx_http_graphite_internal_t**)storage->internals->elts)[i + 1], &((ngx_http_graphite_internal_t**)storage->internals->elts)[i], (storage->internals->nelts - i - 1) * sizeof(ngx_http_graphite_internal_t*));
@@ -1592,7 +1592,7 @@ ngx_http_graphite_add_internal(ngx_http_graphite_context_t *context, const ngx_h
         internal->data = data;
     }
 
-    return i;
+    return internal;
 }
 
 static char *
@@ -1609,7 +1609,7 @@ ngx_http_graphite_param(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
     if (ngx_http_graphite_parse_param_args(&context, cf->args, &param) != NGX_OK)
         return NGX_CONF_ERROR;
 
-    if (ngx_http_graphite_add_internal(&context, &param) == NGX_ERROR)
+    if (ngx_http_graphite_add_internal(&context, &param) == NULL)
         return NGX_CONF_ERROR;
 
     return NGX_CONF_OK;
