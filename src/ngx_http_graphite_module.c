@@ -1488,12 +1488,12 @@ ngx_http_graphite_parse_param_args(ngx_http_graphite_context_t *context, const n
         return NGX_ERROR;
     }
 
+    ngx_int_t r = NGX_OK;
+
     if (ngx_http_graphite_parse_args(context, args, param, ngx_http_graphite_param_args, PARAM_ARGS_COUNT) == NGX_CONF_ERROR)
-        return NGX_ERROR;
+        r = NGX_ERROR;
 
     param->source = SOURCE_INTERNAL;
-
-    ngx_int_t r = NGX_OK;
 
     if (r == NGX_OK && !param->name.data) {
         r = NGX_ERROR;
