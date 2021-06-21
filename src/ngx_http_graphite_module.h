@@ -14,6 +14,8 @@ typedef struct ngx_http_graphite_storage_s {
     time_t last_time;
     time_t event_time;
 
+    ngx_atomic_t rwlock;
+
     ngx_uint_t max_interval;
 
     ngx_http_graphite_allocator_t *allocator;
@@ -83,9 +85,9 @@ typedef struct {
 
 typedef struct ngx_http_graphite_link ngx_http_graphite_link_t;
 
-const ngx_http_graphite_link_t *ngx_http_graphite_link(ngx_http_request_t *r, const ngx_str_t *name);
+const ngx_http_graphite_link_t *ngx_http_graphite_link(ngx_http_request_t *r, const ngx_str_t *name, const ngx_str_t *config);
 
-ngx_int_t ngx_http_graphite(ngx_http_request_t *r, const ngx_str_t *name, double value);
+ngx_int_t ngx_http_graphite(ngx_http_request_t *r, const ngx_str_t *name, double value, const ngx_str_t *config);
 ngx_int_t ngx_http_graphite_by_link(ngx_http_request_t *r, const ngx_http_graphite_link_t *link, double value);
 
 double ngx_http_graphite_get(ngx_http_request_t *r, const ngx_str_t *name);
