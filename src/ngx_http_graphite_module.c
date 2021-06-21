@@ -1475,6 +1475,16 @@ ngx_http_graphite_search_param_link(const ngx_http_graphite_array_t *internals, 
     return ngx_http_graphite_int2link(internal);
 }
 
+static void
+ngx_http_graphite_clear_param_args(ngx_http_graphite_context_t *context, ngx_http_graphite_param_t *param) {
+
+    ngx_http_graphite_allocator_t *allocator = context->storage->allocator;
+
+    ngx_http_graphite_allocator_free(allocator, param->name.data);
+    ngx_http_graphite_allocator_free(allocator, param->interval.name.data);
+    ngx_http_graphite_array_destroy(param->percentiles);
+}
+
 static ngx_int_t
 ngx_http_graphite_parse_param_args(ngx_http_graphite_context_t *context, const ngx_array_t *args, ngx_http_graphite_param_t *param) {
 
@@ -1525,11 +1535,8 @@ ngx_http_graphite_parse_param_args(ngx_http_graphite_context_t *context, const n
         ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite param interval value is greather than max interval");
     }
 
-    if (r != NGX_OK) {
-        ngx_http_graphite_allocator_free(allocator, param->name.data);
-        ngx_http_graphite_allocator_free(allocator, param->interval.name.data);
-        ngx_http_graphite_array_destroy(param->percentiles);
-    }
+    if (r != NGX_OK)
+        ngx_http_graphite_clear_param_args(context, param);
 
     return r;
 }
