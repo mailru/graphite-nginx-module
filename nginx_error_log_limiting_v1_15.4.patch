@@ -259,7 +259,7 @@ index 858210ec..53ad8d82 100644
 2.25.1
 
 
-From c3bb5a29079054edd7965901edc16190be6154a0 Mon Sep 17 00:00:00 2001
+From 275f5f66fdf1dfd0b0788f0115c6ac0936ce00ee Mon Sep 17 00:00:00 2001
 From: Alexander Drozdov <aleksandr.drozdov@corp.mail.ru>
 Date: Thu, 25 Jun 2020 20:38:36 +0300
 Subject: [PATCH 4/6] RB-27104: log: add error_log grow limit support
@@ -274,9 +274,10 @@ Example:
 error_log  error.log error grow_limit=1k;
 ---
  src/core/ngx_connection.h |   2 +
+ src/core/ngx_cycle.c      |  22 ++-
  src/core/ngx_log.c        | 282 +++++++++++++++++++++++++++++++++++++-
  src/core/ngx_log.h        |  24 ++++
- 3 files changed, 305 insertions(+), 3 deletions(-)
+ 4 files changed, 326 insertions(+), 4 deletions(-)
 
 diff --git a/src/core/ngx_connection.h b/src/core/ngx_connection.h
 index 54059629..7ac9fa0d 100644
@@ -291,6 +292,58 @@ index 54059629..7ac9fa0d 100644
      if (!(c->log->log_level & NGX_LOG_DEBUG_CONNECTION)) {                   \
          c->log->log_level = l->log_level;                                    \
      }
+diff --git a/src/core/ngx_cycle.c b/src/core/ngx_cycle.c
+index f3ac24d7..914155fe 100644
+--- a/src/core/ngx_cycle.c
++++ b/src/core/ngx_cycle.c
+@@ -630,6 +630,16 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
+ 
+     /* close and delete stuff that lefts from an old cycle */
+ 
++    /*
++     * log the remaining events of the old cycle with the new log as the old one
++     * may become unusable while cleaning the data
++     */
++
++    log = cycle->log;
++    old_cycle->log = log;
++    old_cycle->pool->log = log;
++    conf.temp_pool->log = log;
++
+     /* free the unnecessary shared memory */
+ 
+     opart = &old_cycle->shared_memory.part;
+@@ -785,12 +795,12 @@ old_shm_zone_done:
+         ngx_memzero(ngx_old_cycles.elts, n * sizeof(ngx_cycle_t *));
+ 
+         ngx_cleaner_event.handler = ngx_clean_old_cycles;
+-        ngx_cleaner_event.log = cycle->log;
+         ngx_cleaner_event.data = &dumb;
+         dumb.fd = (ngx_socket_t) -1;
+     }
+ 
+     ngx_temp_pool->log = cycle->log;
++    ngx_cleaner_event.log = cycle->log;
+ 
+     old = ngx_array_push(&ngx_old_cycles);
+     if (old == NULL) {
+@@ -808,6 +818,16 @@ old_shm_zone_done:
+ 
+ failed:
+ 
++    /*
++     * log the remaining events with the previous log as the current one
++     * may become unusable while cleaning the data
++     */
++
++    cycle->log = log;
++    pool->log = log;
++    conf.temp_pool->log = log;
++    conf.log = log;
++
+     if (!ngx_is_init_cycle(old_cycle)) {
+         old_ccf = (ngx_core_conf_t *) ngx_get_conf(old_cycle->conf_ctx,
+                                                    ngx_core_module);
 diff --git a/src/core/ngx_log.c b/src/core/ngx_log.c
 index 53ad8d82..a3f3ed29 100644
 --- a/src/core/ngx_log.c
@@ -711,7 +764,7 @@ index afb73bf7..905b9bd1 100644
 2.25.1
 
 
-From 64004df3786c220a6a90b4fc849a0ec94f25d990 Mon Sep 17 00:00:00 2001
+From 6b6409d58b99e50e3a6f08bf4b9942b0d0ac4950 Mon Sep 17 00:00:00 2001
 From: Alexander Drozdov <aleksandr.drozdov@corp.mail.ru>
 Date: Tue, 7 Jul 2020 14:29:26 +0300
 Subject: [PATCH 5/6] RB-27104: log: create a global list of all the logs
@@ -767,7 +820,7 @@ index 905b9bd1..aa568e75 100644
 2.25.1
 
 
-From 3927889d97d622e1b4c7438b5f485be6b8035c7d Mon Sep 17 00:00:00 2001
+From ed25de6dea013abff673c866e31bc949fbd26f81 Mon Sep 17 00:00:00 2001
 From: Alexander Drozdov <aleksandr.drozdov@corp.mail.ru>
 Date: Fri, 10 Jul 2020 12:14:47 +0300
 Subject: [PATCH 6/6] RB-27104: log: mark logging limiting changes with a macro
