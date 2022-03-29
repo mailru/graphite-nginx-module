@@ -49,7 +49,8 @@ ngx_http_graphite_array_push(ngx_http_graphite_array_t *a) {
 void *
 ngx_http_graphite_array_push_n(ngx_http_graphite_array_t *array, ngx_uint_t n) {
 
-    if (array->nelts == array->nalloc) {
+    ngx_uint_t new_nelts = array->nelts + n;
+    if (new_nelts > array->nalloc) {
 
         ngx_http_graphite_allocator_t *allocator = array->allocator;
         ngx_uint_t nalloc = 2 * ((n >= array->nalloc) ? n : array->nalloc);
@@ -65,7 +66,7 @@ ngx_http_graphite_array_push_n(ngx_http_graphite_array_t *array, ngx_uint_t n) {
     }
 
     void *elt = (u_char*)array->elts + array->size * array->nelts;
-    array->nelts += n;
+    array->nelts = new_nelts;
 
     return elt;
 }

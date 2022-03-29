@@ -1,7 +1,7 @@
 From 9a1e0a0ec78c8281e1ccd006554b1c3dca2742a8 Mon Sep 17 00:00:00 2001
 From: Mikhail Kirichenko <m.kirichenko@corp.mail.ru>
 Date: Mon, 19 Apr 2021 20:21:23 +0300
-Subject: [PATCH 1/2] initial patch
+Subject: [PATCH 1/3] initial patch
 
 ---
  config                      |   2 +
@@ -225,7 +225,7 @@ index f7a537ee..6292d8b5 100644
 From 49a877588691ea7136a7472ab95df2665d546c64 Mon Sep 17 00:00:00 2001
 From: Alexander Drozdov <aleksandr.drozdov@corp.mail.ru>
 Date: Mon, 19 Apr 2021 20:09:05 +0300
-Subject: [PATCH 2/2] add ngx.graphite.param feature
+Subject: [PATCH 2/3] add ngx.graphite.param feature
 
 Add ngx.graphite.param() function that returns an object by graphite
 parameter name. We name it 'parameter link'. The link then
@@ -372,6 +372,68 @@ index 9178553d..142c6e9f 100644
  
      return 0;
  }
+-- 
+2.25.1
+
+
+From c40cf28bbf35da8c18668f5b8f165aa89a6202dc Mon Sep 17 00:00:00 2001
+From: Alexander Drozdov <aleksandr.drozdov@corp.mail.ru>
+Date: Sat, 19 Jun 2021 12:39:39 +0300
+Subject: [PATCH 3/3] add new graphite parameters on-the-fly
+
+---
+ src/ngx_http_lua_graphite.c | 19 +++++++++++++++----
+ 1 file changed, 15 insertions(+), 4 deletions(-)
+
+diff --git a/src/ngx_http_lua_graphite.c b/src/ngx_http_lua_graphite.c
+index 142c6e9f..9c660ad1 100644
+--- a/src/ngx_http_lua_graphite.c
++++ b/src/ngx_http_lua_graphite.c
+@@ -62,10 +62,16 @@ ngx_http_lua_graphite(lua_State *L) {
+         return 0;
+     else {
+         ngx_str_t name;
++        ngx_str_t config, *pconfig = NULL;
++
+         name.data = (u_char*)lua_tolstring(L, 2, &name.len);
+         if (name.data == NULL)
+             return 0;
+-        ngx_http_graphite(r, &name, lua_tonumber(L, 3));
++        if (n >= 3) {
++            config.data = (u_char*)lua_tolstring(L, 4, &config.len);
++            pconfig = &config;
++        }
++        ngx_http_graphite(r, &name, lua_tonumber(L, 3), pconfig);
+     }
+ 
+     return 0;
+@@ -75,8 +81,8 @@ static int
+ ngx_http_lua_graphite_param(lua_State *L) {
+ 
+     int n = lua_gettop(L);
+-    if (n != 1) {
+-        return luaL_error(L, "ngx.graphite.param expecting 1 argument got %d", n);
++    if (n != 1 && n != 2) {
++        return luaL_error(L, "ngx.graphite.param expecting 1 or 2 arguments, got %d", n);
+     }
+ 
+     ngx_http_request_t *r;
+@@ -86,9 +92,14 @@ ngx_http_lua_graphite_param(lua_State *L) {
+         return luaL_error(L, "no request object found");
+     }
+     ngx_str_t name;
++    ngx_str_t config, *pconfig = NULL;
+     const ngx_http_graphite_link_t *link;
+     name.data = (u_char*)lua_tolstring(L, 1, &name.len);
+-    if (name.data == NULL || (link = ngx_http_graphite_link(r, &name)) == NULL) {
++    if (n >= 2) {
++        config.data = (u_char*)lua_tolstring(L, 2, &config.len);
++        pconfig = &config;
++    }
++    if (name.data == NULL || (link = ngx_http_graphite_link(r, &name, pconfig)) == NULL) {
+         lua_pushboolean(L, 0);
+         return 1;
+     }
 -- 
 2.25.1
 
