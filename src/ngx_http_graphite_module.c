@@ -1039,6 +1039,7 @@ ngx_http_graphite_add_param_to_data(ngx_http_graphite_context_t *context, ngx_ui
             if (context->phase == PHASE_REQUEST) {
                 metric->data = ngx_http_graphite_allocator_alloc(storage->allocator, sizeof(ngx_http_graphite_metric_data_t) * (storage->max_interval + 1));
                 if (metric->data == NULL) {
+                    storage->metrics->nelts--;
                     ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite can't alloc memory");
                     return NGX_CONF_ERROR;
                 }
@@ -1076,6 +1077,7 @@ ngx_http_graphite_add_param_to_data(ngx_http_graphite_context_t *context, ngx_ui
             if (context->phase == PHASE_REQUEST) {
                 gauge->data = ngx_http_graphite_allocator_alloc(storage->allocator, sizeof(ngx_http_graphite_gauge_data_t));
                 if (gauge->data == NULL) {
+                    storage->gauges->nelts--;
                     ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite can't alloc memory");
                     return NGX_CONF_ERROR;
                 }
@@ -1113,6 +1115,7 @@ ngx_http_graphite_add_param_to_data(ngx_http_graphite_context_t *context, ngx_ui
             if (context->phase == PHASE_REQUEST) {
                 statistic->data = ngx_http_graphite_allocator_alloc(storage->allocator, sizeof(ngx_http_graphite_statistic_data_t));
                 if (statistic->data == NULL) {
+                    storage->statistics->nelts--;
                     ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite can't alloc memory");
                     return NGX_CONF_ERROR;
                 }
