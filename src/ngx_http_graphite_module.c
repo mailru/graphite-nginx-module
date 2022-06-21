@@ -972,7 +972,7 @@ ngx_http_graphite_init_data(ngx_http_graphite_context_t *context, ngx_http_graph
 }
 
 static ngx_int_t
-ngx_http_graphite_add_param_to_config(ngx_http_graphite_context_t *context, const ngx_http_graphite_param_t *param) {
+ngx_http_graphite_add_param_to_config(ngx_http_graphite_context_t *context, const ngx_http_graphite_param_t *param, ngx_uint_t *created) {
 
     ngx_http_graphite_array_t *params = context->storage->params;
 
@@ -981,15 +981,21 @@ ngx_http_graphite_add_param_to_config(ngx_http_graphite_context_t *context, cons
         ngx_http_graphite_param_t *old_param = &((ngx_http_graphite_param_t*)params->elts)[p];
         if (param->name.len == old_param->name.len && !ngx_strncmp(param->name.data, old_param->name.data, param->name.len)) {
             if (!param->percentile && !old_param->percentile) {
-                if (param->aggregate == old_param->aggregate && param->interval.value == old_param->interval.value)
+                if (param->aggregate == old_param->aggregate && param->interval.value == old_param->interval.value) {
+                    if (created != NULL)
+                        *created = 0;
                     return p;
+                }
                 else {
                     ngx_log_error(NGX_LOG_ERR, context->log, 0, "graphite param with different aggregate or interval");
                     return NGX_ERROR;
                 }
             }
-            else if (param->percentile == old_param->percentile)
+            else if (param->percentile == old_param->percentile) {
+                if (created != NULL)
+                    *created = 0;
                 return p;
+            }
         }
     }
 
@@ -1000,6 +1006,8 @@ ngx_http_graphite_add_param_to_config(ngx_http_graphite_context_t *context, cons
     }
 
     *new_param = *param;
+    if (created != NULL)
+        *created = 1;
 
     return params->nelts - 1;
 }
@@ -1569,11 +1577,12 @@ ngx_http_graphite_add_internal(ngx_http_graphite_context_t *context, const ngx_h
         else
             new_param.percentile = ((ngx_uint_t*)new_param.percentiles->elts)[n - 1];
 
-        ngx_uint_t p = ngx_http_graphite_add_param_to_config(context, &new_param);
+        ngx_uint_t created;
+        ngx_uint_t p = ngx_http_graphite_add_param_to_config(context, &new_param, &created);
         if ((ngx_int_t)p == NGX_ERROR)
             return NULL;
 
-        if (ngx_http_graphite_add_param_to_data(context, SPLIT_INTERNAL, p, &data) != NGX_CONF_OK)
+        if (created && ngx_http_graphite_add_param_to_data(context, SPLIT_INTERNAL, p, &data) != NGX_CONF_OK)
             return NULL;
     }
 
@@ -2100,7 +2109,7 @@ ngx_http_graphite_parse_params(ngx_http_graphite_context_t *context, const ngx_s
                     param.percentile = percentile;
                 }
 
-                ngx_uint_t p = ngx_http_graphite_add_param_to_config(context, &param);
+                ngx_uint_t p = ngx_http_graphite_add_param_to_config(context, &param, NULL);
                 if ((ngx_int_t)p == NGX_ERROR)
                     return NGX_CONF_ERROR;
 
