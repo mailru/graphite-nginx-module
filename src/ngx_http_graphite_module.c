@@ -2020,7 +2020,7 @@ ngx_http_graphite_get_source(ngx_http_graphite_context_t *context, const ngx_str
                 return NGX_ERROR;
             }
 
-            if (ngx_regex_exec(rc.regex, name, NULL, 0) >= 0)
+            if (ngx_regex_exec(rc.regex, (ngx_str_t*)name, NULL, 0) >= 0)
                 break;
         }
     }
