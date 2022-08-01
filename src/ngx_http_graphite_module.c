@@ -1989,7 +1989,7 @@ ngx_http_graphite_add_data(ngx_conf_t *cf, ngx_array_t *datas, const ngx_str_t *
 }
 
 static ngx_uint_t
-ngx_http_graphite_get_source(ngx_http_graphite_context_t *context, const ngx_str_t *name) {
+ngx_http_graphite_get_source(ngx_http_graphite_context_t *context, ngx_str_t *name) {
 
     if (context->phase != PHASE_CONFIG)
         return NGX_ERROR;
