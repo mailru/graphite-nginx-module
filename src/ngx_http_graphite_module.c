@@ -3355,17 +3355,10 @@ ngx_http_graphite_source_ssl_cache_usage(const ngx_http_graphite_source_t *sourc
         ngx_shm_zone_t *shm_zone = SSL_CTX_get_ex_data(ssl_ctx, ngx_ssl_session_cache_index);
         if (shm_zone) {
             ngx_slab_pool_t *shpool = (ngx_slab_pool_t*)shm_zone->shm.addr;
+            ngx_uint_t all_pages = shpool->last - shpool->pages;
 
-            ngx_shmtx_lock(&shpool->mutex);
-
-            ngx_uint_t all_pages = (shpool->end - shpool->start) / ngx_pagesize;
-            ngx_uint_t free_pages = 0;
-
-            ngx_slab_page_t *page;
-            for (page = shpool->free.next; page != &shpool->free; page = page->next)
-                free_pages += page->slab;
-
-            ngx_shmtx_unlock(&shpool->mutex);
+            /* we don't call ngx_shmtx_lock(&shpool->mutex) as we read only single integer */
+            ngx_uint_t free_pages = shpool->pfree;
 
             if (all_pages > 0)
                 usage = (100 * (all_pages - free_pages)) / all_pages;
