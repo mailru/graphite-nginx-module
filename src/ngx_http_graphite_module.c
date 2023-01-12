@@ -3361,7 +3361,7 @@ ngx_http_graphite_source_ssl_cache_usage(const ngx_http_graphite_source_t *sourc
             ngx_uint_t free_pages = shpool->pfree;
 
             if (all_pages > 0)
-                usage = (100 * (all_pages - free_pages)) / all_pages;
+                usage = ((double)all_pages - free_pages) / all_pages * 100;
         }
     }
 #endif
