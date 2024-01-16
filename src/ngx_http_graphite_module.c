@@ -3526,7 +3526,7 @@ ngx_http_graphite_source_upstream_connect_time(const ngx_http_graphite_source_t 
     state = r->upstream_states->elts;
 
     for (i = 0 ; i < r->upstream_states->nelts; i++) {
-        if (state[i].status)
+        if (state[i].status && state[i].connect_time != (ngx_msec_t)-1)
             ms += (ngx_msec_int_t)(state[i].connect_time);
     }
     ms = ngx_max(ms, 0);
@@ -3553,7 +3553,7 @@ ngx_http_graphite_source_upstream_header_time(const ngx_http_graphite_source_t *
     state = r->upstream_states->elts;
 
     for (i = 0 ; i < r->upstream_states->nelts; i++) {
-        if (state[i].status)
+        if (state[i].status && state[i].header_time != (ngx_msec_t)-1)
             ms += (ngx_msec_int_t)(state[i].header_time);
     }
     ms = ngx_max(ms, 0);
