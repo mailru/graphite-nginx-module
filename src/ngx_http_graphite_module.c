@@ -277,6 +277,11 @@ static double ngx_http_graphite_source_upstream_cache_status_rps(const ngx_http_
 static double ngx_http_graphite_source_upstream_time(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
 static double ngx_http_graphite_source_upstream_connect_time(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
 static double ngx_http_graphite_source_upstream_header_time(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
+static double ngx_http_graphite_source_upstream_response_2xx_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
+static double ngx_http_graphite_source_upstream_response_3xx_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
+static double ngx_http_graphite_source_upstream_response_4xx_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
+static double ngx_http_graphite_source_upstream_response_5xx_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
+static double ngx_http_graphite_source_upstream_response_xxx_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
 #ifdef NGX_GRAPHITE_PATCH
 static double ngx_http_graphite_source_ssl_handshake_time(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
 static double ngx_http_graphite_source_content_time(const ngx_http_graphite_source_t *source, ngx_http_request_t *r);
@@ -301,6 +306,11 @@ static const ngx_http_graphite_source_t ngx_http_graphite_sources[] = {
     { .name = ngx_string("upstream_time"), .get = ngx_http_graphite_source_upstream_time, .aggregate = ngx_http_graphite_aggregate_avg },
     { .name = ngx_string("upstream_connect_time"), .get = ngx_http_graphite_source_upstream_connect_time, .aggregate = ngx_http_graphite_aggregate_avg },
     { .name = ngx_string("upstream_header_time"), .get = ngx_http_graphite_source_upstream_header_time, .aggregate = ngx_http_graphite_aggregate_avg },
+    { .name = ngx_string("upstream_response_2xx_rps"), .get = ngx_http_graphite_source_upstream_response_2xx_rps, .aggregate = ngx_http_graphite_aggregate_persec },
+    { .name = ngx_string("upstream_response_3xx_rps"), .get = ngx_http_graphite_source_upstream_response_3xx_rps, .aggregate = ngx_http_graphite_aggregate_persec },
+    { .name = ngx_string("upstream_response_4xx_rps"), .get = ngx_http_graphite_source_upstream_response_4xx_rps, .aggregate = ngx_http_graphite_aggregate_persec },
+    { .name = ngx_string("upstream_response_5xx_rps"), .get = ngx_http_graphite_source_upstream_response_5xx_rps, .aggregate = ngx_http_graphite_aggregate_persec },
+    { .name = ngx_string("upstream_response_\\d\\d\\d_rps"), .re = 1, .get = ngx_http_graphite_source_upstream_response_xxx_rps, .aggregate = ngx_http_graphite_aggregate_persec },
 #ifdef NGX_GRAPHITE_PATCH
     { .name = ngx_string("ssl_handshake_time"), .get = ngx_http_graphite_source_ssl_handshake_time, .aggregate = ngx_http_graphite_aggregate_avg },
     { .name = ngx_string("content_time"), .get = ngx_http_graphite_source_content_time, .aggregate = ngx_http_graphite_aggregate_avg },
@@ -3569,6 +3579,117 @@ ngx_http_graphite_source_upstream_header_time(const ngx_http_graphite_source_t *
     return (double)ms;
 #else
     return 0
+#endif
+}
+
+static double
+ngx_http_graphite_source_upstream_response_2xx_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r) {
+#if nginx_version >= 1009001
+    ngx_uint_t i, counter = 0;
+    ngx_http_upstream_state_t *state;
+
+    if (r->upstream_states == NULL)
+        return 0;
+
+    state = r->upstream_states->elts;
+
+    for (i = 0; i < r->upstream_states->nelts; i++) {
+        if (state[i].header_time != (ngx_msec_t)-1 && state[i].status / 100 == 2)
+            counter++;
+    }
+
+    return (double)counter;
+#else
+    return 0;
+#endif
+}
+
+static double
+ngx_http_graphite_source_upstream_response_3xx_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r) {
+#if nginx_version >= 1009001
+    ngx_uint_t i, counter = 0;
+    ngx_http_upstream_state_t *state;
+
+    if (r->upstream_states == NULL)
+        return 0;
+
+    state = r->upstream_states->elts;
+
+    for (i = 0; i < r->upstream_states->nelts; i++) {
+        if (state[i].header_time != (ngx_msec_t)-1 && state[i].status / 100 == 3)
+            counter++;
+    }
+
+    return (double)counter;
+#else
+    return 0;
+#endif
+}
+
+static double
+ngx_http_graphite_source_upstream_response_4xx_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r) {
+#if nginx_version >= 1009001
+    ngx_uint_t i, counter = 0;
+    ngx_http_upstream_state_t *state;
+
+    if (r->upstream_states == NULL)
+        return 0;
+
+    state = r->upstream_states->elts;
+
+    for (i = 0; i < r->upstream_states->nelts; i++) {
+        if (state[i].header_time != (ngx_msec_t)-1 && state[i].status / 100 == 4)
+            counter++;
+    }
+
+    return (double)counter;
+#else
+    return 0;
+#endif
+}
+
+static double
+ngx_http_graphite_source_upstream_response_5xx_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r) {
+#if nginx_version >= 1009001
+    ngx_uint_t i, counter = 0;
+    ngx_http_upstream_state_t *state;
+
+    if (r->upstream_states == NULL)
+        return 0;
+
+    state = r->upstream_states->elts;
+
+    for (i = 0; i < r->upstream_states->nelts; i++) {
+        if (state[i].header_time != (ngx_msec_t)-1 && state[i].status / 100 == 5)
+            counter++;
+    }
+
+    return (double)counter;
+#else
+    return 0;
+#endif
+}
+
+static double
+ngx_http_graphite_source_upstream_response_xxx_rps(const ngx_http_graphite_source_t *source, ngx_http_request_t *r) {
+#if nginx_version >= 1009001
+    ngx_uint_t i, status, counter = 0;
+    ngx_http_upstream_state_t *state;
+
+    if (r->upstream_states == NULL)
+        return 0;
+
+    status = ngx_atoi(source->name.data + sizeof("upstream_response_") - 1, 3);
+    state = r->upstream_states->elts;
+
+    for (i = 0; i < r->upstream_states->nelts; i++) {
+        if (state[i].header_time != (ngx_msec_t)-1 && state[i].status == status)
+            counter++;
+    }
+
+    return (double)counter;
+#else
+    return 0;
 #endif
 }
 

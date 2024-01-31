@@ -283,9 +283,15 @@ ssl\_handshake\_time    | ms    | avg  | time spent on ssl handsake
 ssl\_cache\_usage       | %     | last | how much SSL cache used
 content\_time           | ms    | avg  | time spent generating content inside nginx
 gzip\_time              | ms    | avg  | time spent gzipping content ob-the-fly
+lua\_time               | ms    | avg  | time spent on lua code
 upstream\_time          | ms    | avg  | time spent tailking with upstream
 upstream\_connect\_time | ms    | avg  | time spent on upstream connect (nginx >= 1.9.1)
 upstream\_header\_time  | ms    | avg  | time spent on upstream header (nginx >= 1.9.1)
+upstream\_response\_2xx\_rps      | rps   | sum  | total upstream responses number with 2xx code (nginx >= 1.9.1)
+upstream\_response\_3xx\_rps      | rps   | sum  | total upstream responses number with 3xx code (nginx >= 1.9.1)
+upstream\_response\_4xx\_rps      | rps   | sum  | total upstream responses number with 4xx code (nginx >= 1.9.1)
+upstream\_response\_5xx\_rps      | rps   | sum  | total upstream responses number with 5xx code (nginx >= 1.9.1)
+upstream\_response\_[0-9]{3}\_rps | rps   | sum  | total upstream responses number with given code (nginx >= 1.9.1)
 rps                     | rps   | sum  | total requests number per second
 keepalive\_rps          | rps   | sum  | requests number sent over previously opened keepalive connection
 response\_2xx\_rps      | rps   | sum  | total responses number with 2xx code
@@ -294,7 +300,6 @@ response\_4xx\_rps      | rps   | sum  | total responses number with 4xx code
 response\_5xx\_rps      | rps   | sum  | total responses number with 5xx code
 response\_[0-9]{3}\_rps | rps   | sum  | total responses number with given code
 upstream\_cache\_(miss\|bypass\|expired\|stale\|updating\|revalidated\|hit)\_rps | rps   | sum  | totar responses with a given upstream cache status
-lua\_time               | ms    | avg  | time spent on lua code
 
 Percentiles
 ===========
