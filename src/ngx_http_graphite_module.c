@@ -2724,17 +2724,16 @@ ngx_http_graphite_handler(ngx_http_request_t *r) {
     if (r == r->main) {
         ngx_http_graphite_add_datas_values(r, storage, ts, gmcf->datas, values);
         ngx_http_graphite_add_datas_values(r, storage, ts, gscf->datas, values);
-    }
-    ngx_http_graphite_add_datas_values(r, storage, ts, glcf->datas, values);
-
-    if (reqctx != NULL) {
-        size_t i;
-        for (i = 0; i < reqctx->internal_values->nelts; i++) {
-            const ngx_http_graphite_internal_value_t *internal_value = &(((ngx_http_graphite_internal_value_t*)reqctx->internal_values->elts)[i]);
-            ngx_http_graphite_internal_t *internal = internal_value->internal;
-            ngx_http_graphite_add_data_values(r, storage, internal_value->ts, &internal->data, &internal_value->value);
+        if (reqctx != NULL) {
+            size_t i;
+            for (i = 0; i < reqctx->internal_values->nelts; i++) {
+                const ngx_http_graphite_internal_value_t *internal_value = &(((ngx_http_graphite_internal_value_t*)reqctx->internal_values->elts)[i]);
+                ngx_http_graphite_internal_t *internal = internal_value->internal;
+                ngx_http_graphite_add_data_values(r, storage, internal_value->ts, &internal->data, &internal_value->value);
+            }
         }
     }
+    ngx_http_graphite_add_datas_values(r, storage, ts, glcf->datas, values);
 
    size_t i;
    for (i = 0; i < gmcf->internal_values->nelts; i++) {
