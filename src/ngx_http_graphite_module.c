@@ -501,7 +501,7 @@ ngx_http_graphite_init_error_log(ngx_conf_t *cf) {
     lcf = (ngx_log_conf_t*)ngx_get_conf(cf->cycle->conf_ctx, ngx_errlog_module);
 
     for (log = lcf->global_logs; log != NULL;
-         log = log->global_next) {
+        log = log->global_next) {
 
         ngx_str_t *file_name;
 
@@ -954,8 +954,8 @@ ngx_http_graphite_parse_args(ngx_http_graphite_context_t *context, const ngx_arr
             const ngx_http_graphite_arg_t *arg = &args[i];
             if (arg->deflt.len) {
                 if (arg->handler(context, conf, (ngx_str_t*)&arg->deflt) == NGX_CONF_ERROR) {
-                      ngx_log_error(NGX_LOG_CRIT, context->log, 0, "graphite invalid option default value %V", &arg->deflt);
-                      return NGX_CONF_ERROR;
+                    ngx_log_error(NGX_LOG_CRIT, context->log, 0, "graphite invalid option default value %V", &arg->deflt);
+                    return NGX_CONF_ERROR;
                 }
             }
         }
@@ -2724,20 +2724,19 @@ ngx_http_graphite_handler(ngx_http_request_t *r) {
     if (r == r->main) {
         ngx_http_graphite_add_datas_values(r, storage, ts, gmcf->datas, values);
         ngx_http_graphite_add_datas_values(r, storage, ts, gscf->datas, values);
+        if (reqctx != NULL) {
+            size_t i;
+            for (i = 0; i < reqctx->internal_values->nelts; i++) {
+                const ngx_http_graphite_internal_value_t *internal_value = &(((ngx_http_graphite_internal_value_t*)reqctx->internal_values->elts)[i]);
+                ngx_http_graphite_internal_t *internal = internal_value->internal;
+                ngx_http_graphite_add_data_values(r, storage, internal_value->ts, &internal->data, &internal_value->value);
+            }
+        }
     }
     ngx_http_graphite_add_datas_values(r, storage, ts, glcf->datas, values);
 
-    if (reqctx != NULL) {
-        size_t i;
-        for (i = 0; i < reqctx->internal_values->nelts; i++) {
-            const ngx_http_graphite_internal_value_t *internal_value = &(((ngx_http_graphite_internal_value_t*)reqctx->internal_values->elts)[i]);
-            ngx_http_graphite_internal_t *internal = internal_value->internal;
-            ngx_http_graphite_add_data_values(r, storage, internal_value->ts, &internal->data, &internal_value->value);
-        }
-    }
-
-   size_t i;
-   for (i = 0; i < gmcf->internal_values->nelts; i++) {
+    size_t i;
+    for (i = 0; i < gmcf->internal_values->nelts; i++) {
         const ngx_http_graphite_internal_value_t *internal_value = &(((ngx_http_graphite_internal_value_t*)gmcf->internal_values->elts)[i]);
         ngx_http_graphite_internal_t *internal = internal_value->internal;
         ngx_http_graphite_add_data_values(r, storage, internal_value->ts, &internal->data, &internal_value->value);
