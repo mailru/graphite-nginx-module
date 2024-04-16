@@ -188,7 +188,7 @@ Example:
 
 **syntax:** *graphite_param name=&lt;path&gt; interval=&lt;time value&gt; aggregate=&lt;func&gt;*
 
-**context:** *location*
+**context:** *http, server, location, if*
 
 Param      | Required | Description
 ---------- | -------- | -----------
