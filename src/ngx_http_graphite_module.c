@@ -704,7 +704,6 @@ ngx_http_graphite_create_loc_conf(ngx_conf_t *cf) {
     ngx_http_graphite_main_conf_t *gmcf;
     ngx_http_graphite_loc_conf_t *glcf;
 
-    gmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_graphite_module);
     glcf = ngx_pcalloc(cf->pool, sizeof(ngx_http_graphite_loc_conf_t));
 
     if (glcf == NULL)
@@ -723,6 +722,8 @@ ngx_http_graphite_create_loc_conf(ngx_conf_t *cf) {
     ngx_str_t loc = ngx_string("location");
 
     if (cf->args->nelts >= 2 && directive->len == loc.len && ngx_strncmp(directive->data, loc.data, loc.len) == 0) {
+        gmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_graphite_module);
+
         ngx_http_graphite_srv_conf_t *gscf = ngx_http_conf_get_module_srv_conf(cf, ngx_http_graphite_module);
 
         ngx_str_t *uri = &((ngx_str_t*)cf->args->elts)[cf->args->nelts - 1];
